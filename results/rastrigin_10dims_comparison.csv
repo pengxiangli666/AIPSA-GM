@@ -1,0 +1,21 @@
+run,solver,cost,time_sec
+1,Serial SA,15.0187,1.04
+1,Baseline A,15.2591,1.34
+1,Baseline B,6.8441,1.69
+1,AIPSA-GM,3.1696,2.03
+2,Serial SA,19.7179,1.04
+2,Baseline A,16.861,1.35
+2,Baseline B,6.2109,1.61
+2,AIPSA-GM,3.8369,2.04
+3,Serial SA,16.5621,1.03
+3,Baseline A,14.5139,1.34
+3,Baseline B,7.1016,1.61
+3,AIPSA-GM,6.9173,2.0
+4,Serial SA,25.6877,1.04
+4,Baseline A,16.675,1.33
+4,Baseline B,7.7664,1.62
+4,AIPSA-GM,5.3691,2.02
+5,Serial SA,14.0866,1.04
+5,Baseline A,10.9561,1.34
+5,Baseline B,7.0394,1.63
+5,AIPSA-GM,3.7744,2.01

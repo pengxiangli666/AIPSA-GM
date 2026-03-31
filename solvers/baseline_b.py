@@ -62,9 +62,9 @@ def _island_worker(args):
         with lock:
             shared_pool.append((best_cost, best[:]))
 
-        barrier.wait()  # Wait for all islands
+        barrier.wait()  # Wait for all islands to push
 
-        # Pull best solutions from pool and potentially adopt one
+        # Pull best solution from pool and potentially adopt it
         with lock:
             if shared_pool:
                 pool_sorted = sorted(shared_pool, key=lambda x: x[0])
@@ -104,10 +104,12 @@ def synchronous_islands(problem, n_islands=4, T0=1000.0, alpha=0.99,
         seeds = [random.randint(0, 10000) for _ in range(n_islands)]
 
     # Shared state for migration
+    # FIX: use manager.Barrier() instead of mp.Barrier() so it can be
+    #      passed through mp.Pool (which requires pickling all arguments).
     manager = mp.Manager()
     shared_pool = manager.list()
     lock = manager.Lock()
-    barrier = mp.Barrier(n_islands)
+    barrier = manager.Barrier(n_islands)  # <-- was mp.Barrier(n_islands)
 
     args_list = []
     for i in range(n_islands):

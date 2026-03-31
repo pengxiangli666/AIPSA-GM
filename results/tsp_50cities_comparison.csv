@@ -1,0 +1,5 @@
+run,solver,cost,time_sec
+1,Serial SA,5716.5861,2.27
+1,Baseline A,5716.5861,2.74
+1,Baseline B,5716.5861,3.01
+1,AIPSA-GM,6936.3683,22.32

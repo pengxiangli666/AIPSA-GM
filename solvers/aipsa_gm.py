@@ -15,6 +15,12 @@ import random
 import time
 from utils.logger import SALogger
 
+try:
+    from tqdm import tqdm
+    _TQDM_AVAILABLE = True
+except ImportError:
+    _TQDM_AVAILABLE = False
+
 
 def _get_neighbors_topology(island_id, n_islands, topology, k=2):
     """Return list of neighbor island IDs based on topology."""
@@ -36,7 +42,7 @@ def _utility(sol, sol_cost, recipient_best, recipient_cost,
     U(x, i) = alpha * q(x) + beta * d(x, i)
 
     q(x) = (f_max - f(x)) / (f_max - f_min + eps)   [quality, higher=better]
-    d(x, i) = distance(x, current_i) / d_max          [diversity, higher=better]
+    d(x, i) = distance(x, current_i)                  [diversity, higher=better, already [0,1]]
     """
     eps = 1e-10
     f_max = max(all_costs) if all_costs else sol_cost
@@ -44,7 +50,6 @@ def _utility(sol, sol_cost, recipient_best, recipient_cost,
 
     q = (f_max - sol_cost) / (f_max - f_min + eps)
     d = problem.distance(sol, recipient_best)
-    # d is already normalized [0,1] by problem.distance()
 
     return alpha_w * q + beta_w * d
 
@@ -56,7 +61,7 @@ def _island_worker(args):
     (island_id, problem, T0, alpha_cool, L, T_min, max_iter,
      r_low, r_high, migration_interval, migrate_count,
      topology, k_neighbors, alpha_w, beta_w,
-     queues, n_islands, seed, log_file) = args
+     queues, n_islands, seed, log_file, adaptive_heat) = args
 
     if seed is not None:
         random.seed(seed)
@@ -80,7 +85,16 @@ def _island_worker(args):
 
     my_queue = queues[island_id]
 
+    # Estimate total cooling steps for progress bar (island 0 only)
+    estimated_steps = int(math.log(T_min / T0) / math.log(alpha_cool)) if alpha_cool < 1 else 1000
+    show_bar = (island_id == 0 and _TQDM_AVAILABLE)
+    pbar = tqdm(total=estimated_steps, desc="Island-0", unit="cool",
+                dynamic_ncols=True) if show_bar else None
+
     while T > T_min:
+        if pbar is not None:
+            pbar.set_postfix(T=f"{T:.2f}", best=f"{best_cost:.2f}")
+            pbar.update(1)
         for _ in range(L):
             if max_iter and iteration >= max_iter:
                 break
@@ -107,8 +121,8 @@ def _island_worker(args):
             # --- Adaptive temperature adjustment ---
             if window_moves >= window_size:
                 r = window_accepted / window_moves
-                if r < r_low:
-                    T *= 1.1   # too cold, heat up
+                if r < r_low and adaptive_heat:
+                    T *= 1.1   # too cold, heat up (only if adaptive_heat=True)
                 elif r > r_high:
                     T *= 0.9   # too hot, cool down
                 window_accepted = 0
@@ -125,38 +139,44 @@ def _island_worker(args):
                         'cost': best_cost
                     })
 
-            # --- Async incoming migration ---
-            if not my_queue.empty():
-                incoming = []
-                while not my_queue.empty():
-                    try:
-                        msg = my_queue.get_nowait()
-                        incoming.append(msg)
-                    except Exception:
-                        break
+        # --- Async incoming migration (outside inner loop, once per cooling step) ---
+        # NOTE: avoid my_queue.empty() — it hangs on Windows with manager.Queue()
+        incoming = []
+        while True:
+            try:
+                msg = my_queue.get_nowait()
+                incoming.append(msg)
+            except Exception:
+                break
 
-                if incoming:
-                    # Compute utility for each incoming candidate
-                    all_costs = [m['cost'] for m in incoming] + [best_cost]
-                    best_utility = -1
-                    best_candidate = None
+        if incoming:
+            # Compute utility for each incoming candidate
+            all_costs = [m['cost'] for m in incoming] + [best_cost]
+            best_utility = -1.0
+            best_candidate = None
 
-                    for msg in incoming:
-                        u = _utility(
-                            msg['solution'], msg['cost'],
-                            best, best_cost, all_costs,
-                            problem, alpha_w, beta_w
-                        )
-                        if u > best_utility:
-                            best_utility = u
-                            best_candidate = msg
+            for msg in incoming:
+                u = _utility(
+                    msg['solution'], msg['cost'],
+                    best, best_cost, all_costs,
+                    problem, alpha_w, beta_w
+                )
+                if u > best_utility:
+                    best_utility = u
+                    best_candidate = msg
 
-                    # Accept migration if it improves quality or adds diversity
-                    if best_candidate and best_candidate['cost'] < best_cost:
-                        best = best_candidate['solution'][:]
-                        best_cost = best_candidate['cost']
-                        current = best[:]
-                        current_cost = best_cost
+            if best_candidate is not None:
+                if best_candidate['cost'] < best_cost:
+                    # Strict improvement: update both best and current
+                    best = best_candidate['solution'][:]
+                    best_cost = best_candidate['cost']
+                    current = best[:]
+                    current_cost = best_cost
+                elif best_utility > 0.5:
+                    # Diversity injection: only reset current,
+                    # keep best unchanged so we don't regress
+                    current = best_candidate['solution'][:]
+                    current_cost = best_candidate['cost']
 
         # Standard cooling
         T *= alpha_cool
@@ -168,6 +188,9 @@ def _island_worker(args):
         if max_iter and iteration >= max_iter:
             break
 
+    if pbar is not None:
+        pbar.close()
+
     return island_id, best, best_cost, logger.get_records()
 
 
@@ -176,6 +199,7 @@ def aipsa_gm(problem, n_islands=4, T0=1000.0, alpha_cool=0.99, L=100,
              migration_interval=500, migrate_count=1,
              topology='ring', k_neighbors=2,
              alpha_w=0.5, beta_w=0.5,
+             adaptive_heat=True,
              seeds=None, log_dir=None):
     """
     Run AIPSA-GM with async guided migration.
@@ -185,6 +209,12 @@ def aipsa_gm(problem, n_islands=4, T0=1000.0, alpha_cool=0.99, L=100,
         r_low, r_high: acceptance rate thresholds for adaptive temperature
         migration_interval: steps between migration attempts
         alpha_w, beta_w: weights for quality vs diversity in utility function
+            alpha_w + beta_w should equal 1.0
+            higher beta_w => more diversity-driven migration
+        adaptive_heat: if True, allow temperature to increase when acceptance
+            rate is too low (good for multimodal problems like Rastrigin).
+            Set to False for combinatorial problems like TSP where monotone
+            cooling is more stable.
 
     Returns:
         best_solution, best_cost, all_records
@@ -203,7 +233,7 @@ def aipsa_gm(problem, n_islands=4, T0=1000.0, alpha_cool=0.99, L=100,
             i, problem, T0, alpha_cool, L, T_min, max_iter,
             r_low, r_high, migration_interval, migrate_count,
             topology, k_neighbors, alpha_w, beta_w,
-            queues, n_islands, seeds[i], log_file
+            queues, n_islands, seeds[i], log_file, adaptive_heat
         ))
 
     with mp.Pool(processes=n_islands) as pool:

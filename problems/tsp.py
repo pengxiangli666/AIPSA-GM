@@ -31,20 +31,18 @@ class TSP(Problem):
             self.n_cities = n_cities
             self.coords = np.random.rand(n_cities, 2) * 1000  # cities in [0,1000]^2
 
-        # Precompute distance matrix
+        # Precompute distance matrix (vectorized)
         self.dist_matrix = self._compute_dist_matrix()
 
     def _compute_dist_matrix(self):
-        """Precompute pairwise Euclidean distances between cities."""
-        n = self.n_cities
-        coords = self.coords
-        dist = np.zeros((n, n))
-        for i in range(n):
-            for j in range(i + 1, n):
-                d = math.sqrt((coords[i][0] - coords[j][0]) ** 2 +
-                              (coords[i][1] - coords[j][1]) ** 2)
-                dist[i][j] = d
-                dist[j][i] = d
+        """
+        Precompute pairwise Euclidean distances using numpy broadcasting.
+        Much faster than the double for-loop for large n_cities.
+        """
+        c = self.coords
+        # Shape: (n, 1, 2) - (1, n, 2) => (n, n, 2)
+        diff = c[:, np.newaxis, :] - c[np.newaxis, :, :]
+        dist = np.sqrt((diff ** 2).sum(axis=2))
         return dist
 
     def init_solution(self):
@@ -65,11 +63,9 @@ class TSP(Problem):
 
     def cost(self, solution):
         """Total tour length (including return to start)."""
-        total = 0.0
-        n = len(solution)
-        for k in range(n):
-            total += self.dist_matrix[solution[k]][solution[(k + 1) % n]]
-        return total
+        s = np.array(solution)
+        # Use numpy indexing for fast cost computation
+        return float(self.dist_matrix[s, np.roll(s, -1)].sum())
 
     def distance(self, sol_a, sol_b):
         """
