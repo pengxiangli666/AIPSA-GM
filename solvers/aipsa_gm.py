@@ -172,7 +172,7 @@ def _island_worker(args):
                     best_cost = best_candidate['cost']
                     current = best[:]
                     current_cost = best_cost
-                elif best_utility > 0.5:
+                elif best_utility > 0.3:
                     # Diversity injection: only reset current,
                     # keep best unchanged so we don't regress
                     current = best_candidate['solution'][:]

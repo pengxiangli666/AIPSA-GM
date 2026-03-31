@@ -50,7 +50,7 @@ N_ROUNDS        = PER_ISLAND // (STEPS_PER_ROUND * L)
 
 # AIPSA-GM specific
 MIGRATION_INTERVAL = 300
-TOPOLOGY           = 'ring'
+TOPOLOGY           = 'full' # 'ring', 'full', or 'random_k'
 ADAPTIVE_HEAT_TSP        = False
 ADAPTIVE_HEAT_RASTRIGIN  = True
 
