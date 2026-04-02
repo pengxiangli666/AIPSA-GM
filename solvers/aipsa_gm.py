@@ -7,6 +7,7 @@ Features:
   - Guided migration using utility function U(x,i) = alpha*q(x) + beta*d(x,i)
   - Asynchronous buffered migration (non-blocking queue, no global barrier)
   - Topology-aware communication: 'ring', 'full', 'random_k'
+  - Migration policy: 'guided', 'quality_only', 'best_only', 'random'
 """
 
 import multiprocessing as mp
@@ -54,6 +55,51 @@ def _utility(sol, sol_cost, recipient_best, recipient_cost,
     return alpha_w * q + beta_w * d
 
 
+def _select_migrant(incoming, best, best_cost, problem,
+                    migration_policy, alpha_w, beta_w):
+    """
+    Select best candidate from incoming migrants based on migration_policy.
+
+    Policies:
+        'guided'       : quality + diversity (default AIPSA-GM strategy)
+        'quality_only' : quality only (alpha_w=1.0, beta_w=0.0)
+        'best_only'    : lowest cost only, no diversity consideration
+        'random'       : random selection from incoming
+    """
+    if not incoming:
+        return None
+
+    if migration_policy == 'random':
+        return random.choice(incoming)
+
+    elif migration_policy == 'best_only':
+        return min(incoming, key=lambda m: m['cost'])
+
+    elif migration_policy == 'quality_only':
+        all_costs = [m['cost'] for m in incoming] + [best_cost]
+        return max(
+            incoming,
+            key=lambda m: _utility(
+                m['solution'], m['cost'],
+                best, best_cost,
+                all_costs, problem,
+                alpha_w=1.0, beta_w=0.0
+            )
+        )
+
+    else:  # 'guided' = quality + diversity (default)
+        all_costs = [m['cost'] for m in incoming] + [best_cost]
+        return max(
+            incoming,
+            key=lambda m: _utility(
+                m['solution'], m['cost'],
+                best, best_cost,
+                all_costs, problem,
+                alpha_w=alpha_w, beta_w=beta_w
+            )
+        )
+
+
 def _island_worker(args):
     """
     AIPSA-GM island worker with adaptive temperature and async migration.
@@ -61,7 +107,8 @@ def _island_worker(args):
     (island_id, problem, T0, alpha_cool, L, T_min, max_iter,
      r_low, r_high, migration_interval, migrate_count,
      topology, k_neighbors, alpha_w, beta_w,
-     queues, n_islands, seed, log_file, adaptive_heat) = args
+     queues, n_islands, seed, log_file, adaptive_heat,
+     migration_policy) = args
 
     if seed is not None:
         random.seed(seed)
@@ -150,20 +197,10 @@ def _island_worker(args):
                 break
 
         if incoming:
-            # Compute utility for each incoming candidate
-            all_costs = [m['cost'] for m in incoming] + [best_cost]
-            best_utility = -1.0
-            best_candidate = None
-
-            for msg in incoming:
-                u = _utility(
-                    msg['solution'], msg['cost'],
-                    best, best_cost, all_costs,
-                    problem, alpha_w, beta_w
-                )
-                if u > best_utility:
-                    best_utility = u
-                    best_candidate = msg
+            best_candidate = _select_migrant(
+                incoming, best, best_cost, problem,
+                migration_policy, alpha_w, beta_w
+            )
 
             if best_candidate is not None:
                 if best_candidate['cost'] < best_cost:
@@ -172,7 +209,11 @@ def _island_worker(args):
                     best_cost = best_candidate['cost']
                     current = best[:]
                     current_cost = best_cost
-                elif best_utility > 0.3:
+                elif migration_policy in ('guided', 'quality_only') and \
+                        _utility(best_candidate['solution'], best_candidate['cost'],
+                                 best, best_cost,
+                                 [best_candidate['cost'], best_cost],
+                                 problem, alpha_w, beta_w) > 0.3:
                     # Diversity injection: only reset current,
                     # keep best unchanged so we don't regress
                     current = best_candidate['solution'][:]
@@ -200,6 +241,7 @@ def aipsa_gm(problem, n_islands=4, T0=1000.0, alpha_cool=0.99, L=100,
              topology='ring', k_neighbors=2,
              alpha_w=0.5, beta_w=0.5,
              adaptive_heat=True,
+             migration_policy='guided',
              seeds=None, log_dir=None):
     """
     Run AIPSA-GM with async guided migration.
@@ -215,6 +257,11 @@ def aipsa_gm(problem, n_islands=4, T0=1000.0, alpha_cool=0.99, L=100,
             rate is too low (good for multimodal problems like Rastrigin).
             Set to False for combinatorial problems like TSP where monotone
             cooling is more stable.
+        migration_policy: 'guided' (default), 'quality_only', 'best_only', 'random'
+            'guided'       - quality + diversity (AIPSA-GM full strategy)
+            'quality_only' - select by solution quality only
+            'best_only'    - select strictly lowest cost solution
+            'random'       - select random incoming solution
 
     Returns:
         best_solution, best_cost, all_records
@@ -233,7 +280,8 @@ def aipsa_gm(problem, n_islands=4, T0=1000.0, alpha_cool=0.99, L=100,
             i, problem, T0, alpha_cool, L, T_min, max_iter,
             r_low, r_high, migration_interval, migrate_count,
             topology, k_neighbors, alpha_w, beta_w,
-            queues, n_islands, seeds[i], log_file, adaptive_heat
+            queues, n_islands, seeds[i], log_file, adaptive_heat,
+            migration_policy
         ))
 
     with mp.Pool(processes=n_islands) as pool:

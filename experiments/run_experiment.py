@@ -10,6 +10,10 @@ Usage:
     python -m experiments.run_experiment --cities 1000 --runs 5
     python -m experiments.run_experiment --islands 8
     python -m experiments.run_experiment --scale --cities 1000 --runs 3
+
+    # Experiment 2: Migration Policy comparison
+    python -m experiments.run_experiment --exp2 --cities 500 --runs 5
+    python -m experiments.run_experiment --migration guided --cities 500 --runs 5
 """
 
 import sys
@@ -54,8 +58,12 @@ TOPOLOGY           = 'full' # 'ring', 'full', or 'random_k'
 ADAPTIVE_HEAT_TSP        = False
 ADAPTIVE_HEAT_RASTRIGIN  = True
 
+# Migration policies for Experiment 2
+ALL_MIGRATION_POLICIES = ['random', 'best_only', 'quality_only', 'guided']
 
-def run_once(problem, seed_base, n_islands, adaptive_heat=True):
+
+def run_once(problem, seed_base, n_islands, adaptive_heat=True,
+             migration_policy='guided'):
     """Run all four solvers on the given problem, return results dict."""
     seeds = [seed_base + i for i in range(n_islands)]
     n_rounds = max(PER_ISLAND // (STEPS_PER_ROUND * L), 10)
@@ -105,7 +113,8 @@ def run_once(problem, seed_base, n_islands, adaptive_heat=True):
     print(f"cost={cost:.2f}  ({elapsed:.1f}s)")
 
     # ── AIPSA-GM ───────────────────────────────
-    print("  [4/4] AIPSA-GM ...", end=' ', flush=True)
+    label = f"AIPSA-GM ({migration_policy})"
+    print(f"  [4/4] {label} ...", end=' ', flush=True)
     t0 = time.time()
     _, cost, _ = aipsa_gm(
         problem,
@@ -115,13 +124,40 @@ def run_once(problem, seed_base, n_islands, adaptive_heat=True):
         topology=TOPOLOGY,
         migration_interval=MIGRATION_INTERVAL,
         adaptive_heat=adaptive_heat,
+        migration_policy=migration_policy,
         seeds=seeds
     )
     elapsed = time.time() - t0
-    results['AIPSA-GM'] = {'cost': cost, 'time': elapsed}
+    results[label] = {'cost': cost, 'time': elapsed}
     print(f"cost={cost:.2f}  ({elapsed:.1f}s)")
 
     return results
+
+
+def run_once_migration_only(problem, seed_base, n_islands, adaptive_heat,
+                            migration_policy):
+    """
+    Experiment 2: run only AIPSA-GM with a specific migration policy.
+    Returns single result dict keyed by policy name.
+    """
+    seeds = [seed_base + i for i in range(n_islands)]
+    label = f"AIPSA-GM ({migration_policy})"
+    print(f"  [{migration_policy}] ...", end=' ', flush=True)
+    t0 = time.time()
+    _, cost, _ = aipsa_gm(
+        problem,
+        n_islands=n_islands,
+        T0=T0, alpha_cool=ALPHA, L=L, T_min=T_MIN,
+        max_iter=PER_ISLAND,
+        topology=TOPOLOGY,
+        migration_interval=MIGRATION_INTERVAL,
+        adaptive_heat=adaptive_heat,
+        migration_policy=migration_policy,
+        seeds=seeds
+    )
+    elapsed = time.time() - t0
+    print(f"cost={cost:.2f}  ({elapsed:.1f}s)")
+    return {label: {'cost': cost, 'time': elapsed}}
 
 
 def print_table(all_results, solver_names):
@@ -142,12 +178,12 @@ def print_table(all_results, solver_names):
 
     print()
     print("=" * 65)
-    print(f"{'Solver':<22} {'Mean Cost':>12} {'Best Cost':>12} {'Avg Time':>10}")
+    print(f"{'Solver':<30} {'Mean Cost':>12} {'Best Cost':>12} {'Avg Time':>10}")
     print("-" * 65)
     for name in solver_names:
         s = summary[name]
         marker = " ◀" if s['mean_cost'] == best_mean else ""
-        print(f"{name:<22} {s['mean_cost']:>12.2f} {s['best_cost']:>12.2f} "
+        print(f"{name:<30} {s['mean_cost']:>12.2f} {s['best_cost']:>12.2f} "
               f"{s['mean_time']:>9.1f}s{marker}")
     print("=" * 65)
     print()
@@ -180,10 +216,8 @@ def run_scalability(problem_factory, problem_name, n_islands_list,
                     runs, seed, adaptive_heat, output_dir="results"):
     """
     Scalability experiment: run all solvers with different island counts.
-    Shows how solution quality and wall-clock time change as islands scale up.
-    Results saved to {problem_name}_scalability.csv
     """
-    solver_names = ['Serial SA', 'Baseline A', 'Baseline B', 'AIPSA-GM']
+    solver_names = ['Serial SA', 'Baseline A', 'Baseline B', 'AIPSA-GM (guided)']
     os.makedirs(output_dir, exist_ok=True)
     path = os.path.join(output_dir, f"{problem_name}_scalability.csv")
 
@@ -203,6 +237,10 @@ def run_scalability(problem_factory, problem_name, n_islands_list,
                 problem = problem_factory(s)
                 result = run_once(problem, seed_base=s,
                                   n_islands=n, adaptive_heat=adaptive_heat)
+                # rename key for consistency
+                if 'AIPSA-GM (guided)' not in result:
+                    old_key = [k for k in result if k.startswith('AIPSA-GM')][0]
+                    result['AIPSA-GM (guided)'] = result.pop(old_key)
                 all_results.append(result)
 
             summary = print_table(all_results, solver_names)
@@ -218,6 +256,74 @@ def run_scalability(problem_factory, problem_name, n_islands_list,
     print(f"\nScalability results saved to: {path}")
 
 
+def run_migration_experiment(problem_factory, problem_name, n_islands,
+                              runs, seed, adaptive_heat, output_dir="results"):
+    """
+    Experiment 2: Compare four migration policies on AIPSA-GM.
+    Saves results to {problem_name}_migration_policy.csv
+    """
+    policy_labels = [f"AIPSA-GM ({p})" for p in ALL_MIGRATION_POLICIES]
+    os.makedirs(output_dir, exist_ok=True)
+    path = os.path.join(output_dir, f"{problem_name}_migration_policy.csv")
+
+    # Collect results per policy across all runs
+    all_results = {label: [] for label in policy_labels}
+
+    for run in range(runs):
+        s = seed + run * 100
+        print(f"\n── Run {run+1}/{runs}  (seed={s}) ──────────────────")
+        problem = problem_factory(s)
+        for policy in ALL_MIGRATION_POLICIES:
+            label = f"AIPSA-GM ({policy})"
+            result = run_once_migration_only(
+                problem, seed_base=s, n_islands=n_islands,
+                adaptive_heat=adaptive_heat, migration_policy=policy
+            )
+            all_results[label].append(result[label])
+
+    # Print summary table
+    print()
+    print("=" * 65)
+    print(f"Experiment 2: Migration Policy Comparison")
+    print(f"Problem: {problem_name} | Islands: {n_islands} | Runs: {runs}")
+    print("=" * 65)
+    print(f"{'Policy':<30} {'Mean Cost':>12} {'Best Cost':>12} {'Avg Time':>10}")
+    print("-" * 65)
+
+    summary_rows = []
+    best_mean = min(
+        sum(v['cost'] for v in vals) / runs
+        for vals in all_results.values()
+    )
+    for label in policy_labels:
+        vals = all_results[label]
+        mean_cost = sum(v['cost'] for v in vals) / runs
+        best_cost = min(v['cost'] for v in vals)
+        mean_time = sum(v['time'] for v in vals) / runs
+        marker = " ◀" if mean_cost == best_mean else ""
+        print(f"{label:<30} {mean_cost:>12.2f} {best_cost:>12.2f} "
+              f"{mean_time:>9.1f}s{marker}")
+        summary_rows.append((label, mean_cost, best_cost, mean_time))
+
+    print("=" * 65)
+
+    # Save CSV
+    with open(path, 'w', newline='') as f:
+        writer = csv.writer(f)
+        writer.writerow(['run', 'policy', 'cost', 'time_sec'])
+        for run_idx in range(runs):
+            for policy in ALL_MIGRATION_POLICIES:
+                label = f"AIPSA-GM ({policy})"
+                v = all_results[label][run_idx]
+                writer.writerow([
+                    run_idx + 1, label,
+                    round(v['cost'], 4),
+                    round(v['time'], 2),
+                ])
+
+    print(f"\nMigration policy results saved to: {path}")
+
+
 def main():
     parser = argparse.ArgumentParser(description='AIPSA-GM Experiment Runner')
     parser.add_argument('--problem', choices=['tsp', 'rastrigin'], default='tsp')
@@ -229,10 +335,19 @@ def main():
                         help='Number of islands (default: 4). e.g. --islands 8')
     parser.add_argument('--scale', action='store_true',
                         help='Scalability mode: test n_islands = 2, 4, 8, 16 automatically')
+    parser.add_argument('--exp2', action='store_true',
+                        help='Experiment 2: compare all four migration policies')
+    parser.add_argument('--migration',
+                        choices=ALL_MIGRATION_POLICIES,
+                        default='guided',
+                        help='Migration policy for AIPSA-GM (default: guided)')
     args = parser.parse_args()
 
     n_islands = args.islands if args.islands else N_ISLANDS
-    solver_names = ['Serial SA', 'Baseline A', 'Baseline B', 'AIPSA-GM']
+    solver_names = [
+        'Serial SA', 'Baseline A', 'Baseline B',
+        f'AIPSA-GM ({args.migration})'
+    ]
 
     # Problem factory
     if args.problem == 'tsp':
@@ -245,6 +360,21 @@ def main():
         problem_factory = lambda s: Rastrigin(n_dims=args.dims, seed=s)
         adaptive_heat = ADAPTIVE_HEAT_RASTRIGIN
         print(f"\nProblem: Rastrigin ({args.dims} dims)")
+
+    # ── Experiment 2: Migration Policy ────────
+    if args.exp2:
+        print(f"Mode: Experiment 2 — Migration Policy Comparison")
+        print(f"Policies: {ALL_MIGRATION_POLICIES}")
+        print(f"Runs: {args.runs}  |  N_islands: {n_islands}  |  Topology: {TOPOLOGY}\n")
+        run_migration_experiment(
+            problem_factory=problem_factory,
+            problem_name=problem_name,
+            n_islands=n_islands,
+            runs=args.runs,
+            seed=args.seed,
+            adaptive_heat=adaptive_heat,
+        )
+        return
 
     # ── Scalability mode ───────────────────────
     if args.scale:
@@ -263,6 +393,7 @@ def main():
     # ── Normal mode ────────────────────────────
     print(f"Total iters: {TOTAL_ITERS:,} (serial) / {PER_ISLAND:,} per island")
     print(f"Runs: {args.runs}  |  N_islands: {n_islands}  |  Topology: {TOPOLOGY}")
+    print(f"Migration policy: {args.migration}")
     print()
 
     all_results = []
@@ -271,13 +402,13 @@ def main():
         print(f"── Run {run + 1}/{args.runs}  (seed={seed}) ──────────────────")
         problem = problem_factory(seed)
         results = run_once(problem, seed_base=seed,
-                           n_islands=n_islands, adaptive_heat=adaptive_heat)
+                           n_islands=n_islands, adaptive_heat=adaptive_heat,
+                           migration_policy=args.migration)
         all_results.append(results)
         print()
 
     print_table(all_results, solver_names)
 
-    # 文件名加上island数量（如果用了--islands参数）
     csv_name = f"{problem_name}_islands{n_islands}" if args.islands else problem_name
     save_csv(all_results, solver_names, csv_name)
 
