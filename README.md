@@ -202,10 +202,17 @@ Options:
 
 **TSP 1000 cities | 4 islands | 5 runs**
 
-| Solver | Mean Cost | Best Cost | Avg Time |
-|--------|-----------|-----------|----------|
-| Baseline B (sync) | 33,525 | 33,377 | 22.6s |
-| **AIPSA-GM (async)** | **29,380** | **29,137** | **22.1s** ◀ |
+| Solver | Mean Cost | Best Cost | Avg Time | Speedup |
+|--------|-----------|-----------|----------|---------|
+| Baseline B (sync) | 33,733 | 33,377 | 24.9s | 1.00x |
+| **AIPSA-GM (async)** | **29,409** | **29,257** | **23.5s** | **1.06x** ◀ |
+
+**Rastrigin 10dims | 4 islands | 10 runs**
+
+| Solver | Mean Cost | Best Cost | Avg Time | Speedup |
+|--------|-----------|-----------|----------|---------|
+| Baseline B (sync) | 8.69 | 3.65 | 3.3s | 1.00x |
+| **AIPSA-GM (async)** | **4.14** | **2.73** | **4.9s** | **0.68x** ◀ |
 
 *Scalability data (Experiment 1) also confirms async advantage grows with island count:*
 
@@ -217,9 +224,10 @@ Options:
 | 16        | 30,973             | 25,876            | 16.5%       |
 
 **Key findings:**
-- Asynchronous migration consistently outperforms synchronous at every island count.
-- The advantage grows with more islands (3.6% at 2 → 16.5% at 16), because synchronous barriers create more idle time as island count increases.
-- Async design eliminates global barriers, allowing faster islands to continue computation while slower ones catch up.
+- Asynchronous migration consistently outperforms synchronous in solution quality on both benchmarks: -12.8% on TSP, -52.3% on Rastrigin.
+- On TSP, async is also faster (1.06x speedup) because it eliminates synchronization barriers.
+- On Rastrigin, async uses more time (0.68x) due to auto-calibrated cooling running full iterations, but the cost improvement is substantial — a worthwhile tradeoff.
+- The scalability data shows the async advantage grows with island count (3.6% → 16.5%), as synchronous barriers cause increasing idle time with more islands.
 
 ---
 
