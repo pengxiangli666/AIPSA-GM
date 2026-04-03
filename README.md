@@ -1,241 +1,269 @@
-# AIPSA-GM
+# AIPSA-GM: Adaptive Islanded Parallel Simulated Annealing with Guided Migration
 
-**Adaptive Islanded Parallel Simulated Annealing with Guided Migration**
+## Team
 
-EE/CSCI 451 Course Project — Pengxiang Li, Weilun Qiu, Jinkuo Ha
+Pengxiang Li, Weilun Qiu, Jinkuo Ha
+
+## Overview
+
+AIPSA-GM is a parallel simulated annealing framework that combines adaptive temperature control, guided migration with quality+diversity utility, asynchronous buffered communication, and topology-aware island models.
+
+We evaluate AIPSA-GM against three baselines on two benchmarks (TSP and Rastrigin), testing five hypotheses about parallelism, migration strategy, adaptive temperature, synchronization, and communication topology.
 
 ---
 
-## 项目结构
+## Project Structure
 
 ```
-451-project/
-├── problems/
-│   ├── base.py              # 抽象基类，定义统一问题接口
-│   ├── tsp.py               # TSP 旅行商问题
-│   └── rastrigin.py         # Rastrigin 连续优化函数
-├── solvers/
-│   ├── serial_sa.py         # 串行 SA 基准
-│   ├── baseline_a.py        # Baseline A：独立并行（无通信）
-│   ├── baseline_b.py        # Baseline B：同步岛屿（有 barrier）
-│   └── aipsa_gm.py          # AIPSA-GM：我们的算法
+451-PROJECT/
 ├── experiments/
-│   └── run_experiment.py    # 统一实验入口脚本
+│   ├── __init__.py
+│   └── run_experiment.py      # Unified experiment runner (Exp 1–5)
+├── problems/
+│   ├── __init__.py
+│   ├── base.py                # Unified Problem interface
+│   ├── rastrigin.py           # Rastrigin function benchmark
+│   └── tsp.py                 # TSP benchmark
+├── solvers/
+│   ├── __init__.py
+│   ├── serial_sa.py           # Serial SA baseline
+│   ├── baseline_a.py          # Baseline A: Independent Replicas
+│   ├── baseline_b.py          # Baseline B: Synchronous Islands
+│   └── aipsa_gm.py            # AIPSA-GM (Baseline C)
 ├── utils/
-│   └── logger.py            # 日志工具
-└── results/                 # 实验结果 CSV（自动生成）
+│   ├── __init__.py
+│   └── logger.py              # SA logging utility
+├── results/                   # CSV outputs from experiments
+├── README.md
+└── requirements.txt
 ```
 
 ---
 
-## 环境配置
+## Quick Start
 
-### 安装依赖
+### Requirements
 
 ```bash
 pip install numpy tqdm
 ```
 
-### Python 版本
-
-Python 3.12（Windows 用 `python3.exe` 或 `py`）
-
----
-
-## 快速开始
-
-### 验证四个 solver 能跑通
+### Run All Experiments
 
 ```bash
-python3.exe -m solvers.serial_sa
-python3.exe -m solvers.baseline_a
-python3.exe -m solvers.baseline_b
-python3.exe -m solvers.aipsa_gm
+# ─── Experiment 1: Solver Comparison (TSP) ───────────────────
+python -m experiments.run_experiment --problem tsp --cities 1000 --runs 5
+
+# ─── Experiment 1: Solver Comparison (Rastrigin) ─────────────
+python -m experiments.run_experiment --problem rastrigin --dims 10 --runs 10
+
+# ─── Experiment 2: Migration Policy (TSP) ────────────────────
+python -m experiments.run_experiment --exp2 --problem tsp --cities 1000 --runs 10
+
+# ─── Experiment 2: Migration Policy (Rastrigin) ──────────────
+python -m experiments.run_experiment --exp2 --problem rastrigin --dims 10 --runs 10
+
+# ─── Experiment 3: Adaptive Temperature (Rastrigin) ──────────
+python -m experiments.run_experiment --exp3 --problem rastrigin --dims 10 --runs 10
+
+# ─── Experiment 3: Adaptive Temperature (TSP) ────────────────
+python -m experiments.run_experiment --exp3 --problem tsp --cities 1000 --runs 5
+
+# ─── Experiment 5: Topology Comparison (TSP) ─────────────────
+python -m experiments.run_experiment --exp5 --problem tsp --cities 1000 --runs 5
+
+# ─── Experiment 5: Topology Comparison (Rastrigin) ───────────
+python -m experiments.run_experiment --exp5 --problem rastrigin --dims 10 --runs 10
+
+# ─── Experiment 5: Scalability (TSP) ─────────────────────────
+python -m experiments.run_experiment --scale --problem tsp --cities 1000 --runs 3
 ```
 
 ---
 
-## 实验脚本使用说明
+## Experiment Guide
 
-所有实验统一通过 `experiments/run_experiment.py` 运行。
+### Configuration (in `run_experiment.py`)
 
-### 基础用法
+| Parameter | Value | Description |
+|-----------|-------|-------------|
+| `TOTAL_ITERS` | 500,000 | Serial SA iteration budget |
+| `PER_ISLAND` | 500,000 | Iterations per island |
+| `T0` | 5000.0 | Initial temperature |
+| `ALPHA` | 0.995 | Cooling rate |
+| `L` | 100 | Inner loop length |
+| `T_MIN` | 1e-3 | Minimum temperature |
+| `MIGRATION_INTERVAL` | 300 | Steps between migrations |
+| `TOPOLOGY` | full | Default topology |
+| `ADAPTIVE_HEAT_TSP` | False | No reheating for TSP |
+| `ADAPTIVE_HEAT_RASTRIGIN` | True | Reheating enabled for Rastrigin |
 
-```bash
-# TSP 1000城市，跑3次取均值（默认）
-python3.exe -m experiments.run_experiment
+### CLI Reference
 
-# TSP 指定城市数量
-python3.exe -m experiments.run_experiment --cities 200
-python3.exe -m experiments.run_experiment --cities 500
-python3.exe -m experiments.run_experiment --cities 1000
-python3.exe -m experiments.run_experiment --cities 2000
-
-# Rastrigin 函数
-python3.exe -m experiments.run_experiment --problem rastrigin
-
-# 指定运行次数
-python3.exe -m experiments.run_experiment --runs 5
-python3.exe -m experiments.run_experiment --runs 20
-
-# 指定 island 数量
-python3.exe -m experiments.run_experiment --islands 8
-
-# 完整参数示例
-python3.exe -m experiments.run_experiment --problem tsp --cities 1000 --runs 5 --islands 4
 ```
+python -m experiments.run_experiment [OPTIONS]
 
-### Scalability 实验（自动跑 2/4/8/16 islands）
-
-```bash
-# TSP 1000城市，每个配置跑3次
-python3.exe -m experiments.run_experiment --scale --cities 1000 --runs 3
-
-# Rastrigin
-python3.exe -m experiments.run_experiment --scale --problem rastrigin --runs 3
-```
-
-结果自动保存到 `results/tsp_1000cities_scalability.csv`
-
-### 所有参数说明
-
-| 参数 | 默认值 | 说明 |
-|------|--------|------|
-| `--problem` | `tsp` | 问题类型：`tsp` 或 `rastrigin` |
-| `--cities` | `1000` | TSP 城市数量 |
-| `--dims` | `10` | Rastrigin 维度数 |
-| `--runs` | `3` | 独立运行次数（取均值） |
-| `--seed` | `42` | 随机种子基准值 |
-| `--islands` | `4` | 并行 island 数量 |
-| `--scale` | 关 | 开启 scalability 模式 |
-
----
-
-## 当前最优配置（已验证）
-
-`run_experiment.py` 中的关键参数：
-
-```python
-TOPOLOGY           = 'full'    # full > ring > random_k
-MIGRATION_INTERVAL = 300
-ADAPTIVE_HEAT_TSP        = False   # TSP 用单调冷却
-ADAPTIVE_HEAT_RASTRIGIN  = True    # Rastrigin 用自适应温度
-```
-
-`aipsa_gm.py` 中的关键参数：
-
-```python
-best_utility > 0.3    # diversity injection 阈值（原来是 0.5）
-alpha_w = 0.5         # quality 权重
-beta_w  = 0.5         # diversity 权重
+Options:
+  --problem {tsp,rastrigin}    Benchmark problem (default: tsp)
+  --cities N                   TSP city count (default: 1000)
+  --dims N                     Rastrigin dimensions (default: 10)
+  --runs N                     Number of independent runs (default: 3)
+  --seed N                     Base random seed (default: 42)
+  --islands N                  Number of islands (default: 4)
+  --migration {guided,random,best_only,quality_only}
+                               Migration policy (default: guided)
+  --exp2                       Experiment 2: migration policy comparison
+  --exp3                       Experiment 3: fixed vs adaptive cooling
+  --exp5                       Experiment 5: topology comparison
+  --scale                      Scalability: test n_islands = 2, 4, 8, 16
 ```
 
 ---
 
-## 已有实验结果
+## Experiment Results
 
-### TSP 不同规模对比（4 islands, full topology, 5 runs）
+### Experiment 1: Is Parallel SA Beneficial?
 
-| 城市数 | Serial SA | Baseline A | Baseline B | **AIPSA-GM** |
-|--------|-----------|------------|------------|-------------|
-| 200 | 11539 | 11392 | 11536 | 11703 |
-| 1000 | 61657 | 60496 | 57766 | **40694** |
-| 2000 | 163122 | 161896 | 155223 | **110216** |
+**TSP 1000 cities | Scalability across island counts | 3 runs**
 
-> 规模越大，AIPSA-GM 优势越明显（1000城市好 34%，2000城市好 32%）
+| n_islands | Serial SA | Baseline A | Baseline B | AIPSA-GM (guided) |
+|-----------|-----------|------------|------------|-------------------|
+| 2         | 46,544    | 46,229     | 35,023     | **33,747** ◀      |
+| 4         | 46,544    | 45,981     | 33,525     | **29,380** ◀      |
+| 8         | 46,544    | 45,961     | 32,069     | **26,888** ◀      |
+| 16        | 46,544    | 45,931     | 30,973     | **25,876** ◀      |
 
-### Rastrigin 10维（50 runs，全局最优 = 0）
-
-| Solver | Mean Cost | Best Cost |
-|--------|-----------|-----------|
-| Serial SA | 19.00 | 9.16 |
-| Baseline A | 13.93 | 5.36 |
-| Baseline B | 7.33 | 2.98 |
-| **AIPSA-GM** | **4.87** | **2.09** |
-
-### Scalability 实验（TSP 1000城市，3 runs）
-
-| n_islands | Baseline B Cost | Baseline B Time | AIPSA-GM Cost | AIPSA-GM Time |
-|-----------|----------------|-----------------|---------------|---------------|
-| 2 | 35023 | 23.7s | 40005 | 13.5s |
-| 4 | 33525 | 27.0s | 35338 | 14.8s |
-| 8 | 32069 | 32.8s | 33655 | 18.0s |
-| 16 | 30973 | **45.5s** | 32585 | **24.2s** |
-
-> island 增加时，Baseline B 时间急剧增长（barrier 开销），AIPSA-GM 时间增长平缓
-
-### Topology 对比（TSP 1000城市，4 islands，3 runs）
-
-| Topology | AIPSA-GM Mean Cost | Time |
-|----------|-------------------|------|
-| ring | 35338 | 14.8s |
-| random_k | 35607 | 15.2s |
-| **full** | **34278** | **15.1s** |
+**Key findings:**
+- AIPSA-GM consistently achieves the best cost across all island configurations.
+- Cost improves steadily as islands increase (33,747 → 25,876), demonstrating good scalability.
+- Baseline A (independent replicas, no migration) barely improves over Serial SA, proving that migration — not just parallelism — is the key driver of improvement.
+- AIPSA-GM outperforms Baseline B (synchronous) by 12–16%, showing the benefit of asynchronous guided migration.
 
 ---
 
-## 还需要完成的实验
+### Experiment 2: Migration Policy Effect
 
-根据 proposal，以下实验还未完成：
+**TSP 2000 cities | 4 islands | 10 runs**
 
-- [ ] **Experiment 2**：Migration policy 对比（random / best-only / quality-only / quality+diversity）
-- [ ] **Experiment 3**：Adaptive vs Fixed cooling 专项对比
-- [ ] **Experiment 6**：GPU 版本开发与对比
-- [ ] 画图可视化（所有对比图）
+| Policy | Mean Cost | Best Cost | Avg Time |
+|--------|-----------|-----------|----------|
+| random | 74,150 | 73,326 | 33.6s |
+| best_only | 71,787 | 70,667 | 33.7s ◀ |
+| quality_only | 71,817 | 70,976 | 40.3s |
+| guided | 72,092 | 70,573 | 40.2s |
 
----
+**Rastrigin 10dims | 4 islands | 10 runs**
 
-## 注意事项
+| Policy | Mean Cost | Best Cost | Avg Time |
+|--------|-----------|-----------|----------|
+| random | 4.29 | 1.66 | 4.7s ◀ |
+| best_only | 4.68 | 0.82 | 4.7s |
+| quality_only | 4.64 | 2.81 | 4.7s |
+| guided | 4.97 | 3.42 | 5.1s |
 
-### Windows 多进程
-所有多进程代码必须在 `if __name__ == '__main__':` 保护下运行，否则 Windows 会报错。实验脚本已处理好，直接用 `-m` 方式运行即可。
-
-### manager.Queue() vs mp.Queue()
-Windows 上 `mp.Queue().empty()` 会挂死，项目中统一使用 `manager.Queue()` + `get_nowait()` 方式。
-
-### manager.Barrier() vs mp.Barrier()
-`mp.Barrier` 无法被 pickle 传给 `mp.Pool`，项目中统一使用 `manager.Barrier()`。
-
-### 运行时间参考（i9-12900K）
-| 实验 | 预计时间 |
-|------|---------|
-| TSP 200城市 1次 | ~10s |
-| TSP 1000城市 1次 | ~35s |
-| TSP 2000城市 1次 | ~80s |
-| Rastrigin 1次 | ~8s |
-| Scalability (2/4/8/16) 3次 | ~20min |
+**Key findings:**
+- On TSP, all migration policies significantly outperform random, with best_only and guided achieving comparable Best Cost (~70,500).
+- On Rastrigin, migration policies show minimal differentiation (Mean Cost all within 4.3–5.0), suggesting that diversity-driven migration provides limited benefit for continuous optimization with fixed step sizes.
+- The guided strategy adds overhead from diversity computation, which pays off more in combinatorial problems (TSP) than continuous ones (Rastrigin).
 
 ---
 
-## 算法说明
+### Experiment 3: Adaptive Temperature
 
-### AIPSA-GM 核心特性
+**Rastrigin 10dims | 4 islands | 10 runs**
 
-**1. 自适应温度控制**
-```
-接受率 < r_low  → 升温 T *= 1.1（仅 Rastrigin）
-接受率 > r_high → 降温 T *= 0.9
-否则            → 标准冷却 T *= alpha
-```
+| Solver | Mean Cost | Best Cost | Std Dev | Avg Time |
+|--------|-----------|-----------|---------|----------|
+| Fixed cooling | 8.56 | 1.61 | 4.22 | 3.3s |
+| **Adaptive cooling** | **4.02** | **1.71** | **1.07** | **4.8s** ◀ |
 
-**2. Guided Migration（引导迁移）**
-```
-U(x, i) = α × q(x) + β × d(x, i)
-q(x) = 解的质量（归一化）
-d(x, i) = 解与目标 island 的多样性距离
-```
+**TSP 1000 cities | 4 islands | 5 runs**
 
-**3. 异步通信**
-- 无全局 barrier
-- 每隔 migration_interval 步推送最优解
-- 非阻塞接收，计算与通信重叠
+| Solver | Mean Cost | Best Cost | Std Dev | Avg Time |
+|--------|-----------|-----------|---------|----------|
+| **Fixed cooling** | **29,512** | **28,905** | **478** | **24.0s** ◀ |
+| Adaptive cooling | 36,808 | 35,965 | 578 | 28.7s |
 
-### 四个 Solver 对比
+**Key findings:**
+- **Rastrigin:** Adaptive cooling cuts Mean Cost by 53% (8.56 → 4.02) and reduces Std Dev by 75% (4.22 → 1.07). This demonstrates significantly improved robustness across random seeds.
+- **TSP:** Fixed cooling outperforms adaptive by 20% (29,512 vs 36,808). Reheating disrupts the monotone convergence that combinatorial optimization requires.
+- **Conclusion:** Adaptive temperature is highly effective for multimodal continuous problems but detrimental for combinatorial optimization. This motivates the per-problem `adaptive_heat` switch in AIPSA-GM.
 
-| | Serial SA | Baseline A | Baseline B | AIPSA-GM |
-|--|-----------|------------|------------|----------|
-| 并行 | ❌ | ✅ | ✅ | ✅ |
-| 通信 | ❌ | ❌ | ✅ 同步 | ✅ 异步 |
-| Barrier | - | - | ✅ 有 | ❌ 无 |
-| 自适应温度 | ❌ | ❌ | ❌ | ✅ |
-| Guided Migration | ❌ | ❌ | ❌ | ✅ |
+---
+
+### Experiment 4: Async vs Sync
+
+*Derived from Experiment 1 scalability data (Baseline B = synchronous, AIPSA-GM = asynchronous).*
+
+**TSP 1000 cities | Mean Cost comparison**
+
+| n_islands | Baseline B (sync) | AIPSA-GM (async) | Improvement |
+|-----------|--------------------|-------------------|-------------|
+| 2         | 35,023             | 33,747            | 3.6%        |
+| 4         | 33,525             | 29,380            | 12.4%       |
+| 8         | 32,069             | 26,888            | 16.2%       |
+| 16        | 30,973             | 25,876            | 16.5%       |
+
+**Key findings:**
+- Asynchronous migration consistently outperforms synchronous at every island count.
+- The advantage grows with more islands (3.6% at 2 islands → 16.5% at 16 islands), because synchronous barriers create more idle time as island count increases.
+- Async design eliminates global barriers, allowing faster islands to continue computation while slower ones catch up.
+
+---
+
+### Experiment 5: Topology and Scalability
+
+**TSP 1000 cities | 4 islands | 5 runs**
+
+| Topology | Mean Cost | Best Cost | Avg Time |
+|----------|-----------|-----------|----------|
+| ring | 30,105 | 29,267 | 21.9s |
+| **full** | **29,240** | **28,534** | **23.1s** ◀ |
+| random_k | 30,072 | 29,650 | 22.1s |
+
+**Rastrigin 10dims | 4 islands | 10 runs**
+
+| Topology | Mean Cost | Best Cost | Avg Time |
+|----------|-----------|-----------|----------|
+| ring | 4.83 | 3.42 | 4.8s |
+| **full** | **4.14** | **2.88** | **5.0s** ◀ |
+| random_k | 4.58 | 2.22 | 4.8s |
+
+**Key findings:**
+- Full topology achieves the best Mean Cost on both benchmarks, thanks to maximum information sharing between islands.
+- The cost is slightly higher wall-clock time (~5% more than ring) due to increased communication.
+- Ring topology preserves diversity better (each island only sees 2 neighbors), but converges slower.
+- With only 4 islands, differences are modest; larger island counts would amplify topology effects.
+
+---
+
+## AIPSA-GM Design Highlights
+
+### Auto-Calibrated Cooling Schedule
+The cooling rate `alpha_cool` is automatically calculated from `max_iter` to ensure temperature reaches `T_min` exactly when iterations are exhausted. This prevents wasted computation from premature temperature depletion.
+
+### Phase-Aware Adaptive Heating
+When enabled, reheating only occurs in the first 60% of iterations, with the reheat factor decaying from 1.10 to 1.02. Temperature is capped at `T0 * 0.3` to prevent runaway reheating.
+
+### Dynamic Diversity Injection
+For guided and quality_only migration, the acceptance threshold for diverse solutions scales with progress:
+- Early phase: permissive (cost tolerance 30%, diversity threshold 0.15)
+- Late phase: strict (cost tolerance 5%, diversity threshold 0.50)
+
+### Asynchronous Buffered Migration
+Islands communicate via non-blocking queues with no global barriers. Migration is checked both during the inner loop (every `migration_interval` steps) and at cooling step boundaries for faster response.
+
+---
+
+## Output Files
+
+All results are saved to `results/` as CSV files:
+
+| File | Experiment |
+|------|------------|
+| `tsp_*cities_comparison.csv` | Exp 1: Solver comparison |
+| `rastrigin_*dims_comparison.csv` | Exp 1: Solver comparison |
+| `*_migration_policy.csv` | Exp 2: Migration policy |
+| `*_adaptive_temp.csv` | Exp 3: Adaptive temperature |
+| `*_topology.csv` | Exp 5: Topology comparison |
+| `*_scalability.csv` | Exp 5: Scalability |
