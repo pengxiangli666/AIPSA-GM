@@ -69,6 +69,12 @@ python -m experiments.run_experiment --exp3 --problem rastrigin --dims 10 --runs
 # ─── Experiment 3: Adaptive Temperature (TSP) ────────────────
 python -m experiments.run_experiment --exp3 --problem tsp --cities 1000 --runs 5
 
+# ─── Experiment 4: Async vs Sync (TSP) ───────────────────────
+python -m experiments.run_experiment --exp4 --problem tsp --cities 1000 --runs 5
+
+# ─── Experiment 4: Async vs Sync (Rastrigin) ─────────────────
+python -m experiments.run_experiment --exp4 --problem rastrigin --dims 10 --runs 10
+
 # ─── Experiment 5: Topology Comparison (TSP) ─────────────────
 python -m experiments.run_experiment --exp5 --problem tsp --cities 1000 --runs 5
 
@@ -114,6 +120,7 @@ Options:
                                Migration policy (default: guided)
   --exp2                       Experiment 2: migration policy comparison
   --exp3                       Experiment 3: fixed vs adaptive cooling
+  --exp4                       Experiment 4: async vs sync migration
   --exp5                       Experiment 5: topology comparison
   --scale                      Scalability: test n_islands = 2, 4, 8, 16
 ```
@@ -193,9 +200,14 @@ Options:
 
 ### Experiment 4: Async vs Sync
 
-*Derived from Experiment 1 scalability data (Baseline B = synchronous, AIPSA-GM = asynchronous).*
+**TSP 1000 cities | 4 islands | 5 runs**
 
-**TSP 1000 cities | Mean Cost comparison**
+| Solver | Mean Cost | Best Cost | Avg Time |
+|--------|-----------|-----------|----------|
+| Baseline B (sync) | 33,525 | 33,377 | 22.6s |
+| **AIPSA-GM (async)** | **29,380** | **29,137** | **22.1s** ◀ |
+
+*Scalability data (Experiment 1) also confirms async advantage grows with island count:*
 
 | n_islands | Baseline B (sync) | AIPSA-GM (async) | Improvement |
 |-----------|--------------------|-------------------|-------------|
@@ -206,7 +218,7 @@ Options:
 
 **Key findings:**
 - Asynchronous migration consistently outperforms synchronous at every island count.
-- The advantage grows with more islands (3.6% at 2 islands → 16.5% at 16 islands), because synchronous barriers create more idle time as island count increases.
+- The advantage grows with more islands (3.6% at 2 → 16.5% at 16), because synchronous barriers create more idle time as island count increases.
 - Async design eliminates global barriers, allowing faster islands to continue computation while slower ones catch up.
 
 ---
@@ -265,5 +277,6 @@ All results are saved to `results/` as CSV files:
 | `rastrigin_*dims_comparison.csv` | Exp 1: Solver comparison |
 | `*_migration_policy.csv` | Exp 2: Migration policy |
 | `*_adaptive_temp.csv` | Exp 3: Adaptive temperature |
+| `*_async_vs_sync.csv` | Exp 4: Async vs sync |
 | `*_topology.csv` | Exp 5: Topology comparison |
 | `*_scalability.csv` | Exp 5: Scalability |
