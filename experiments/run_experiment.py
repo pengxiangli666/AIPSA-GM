@@ -324,6 +324,266 @@ def run_migration_experiment(problem_factory, problem_name, n_islands,
     print(f"\nMigration policy results saved to: {path}")
 
 
+def run_topology_experiment(problem_factory, problem_name, n_islands,
+                            runs, seed, adaptive_heat, output_dir="results"):
+    """
+    Experiment 5: Compare communication topologies on AIPSA-GM.
+    Tests ring, full, and random_k topologies with guided migration.
+    Saves results to {problem_name}_topology.csv
+    """
+    ALL_TOPOLOGIES = ['ring', 'full', 'random_k']
+    topo_labels = [f"AIPSA-GM ({t})" for t in ALL_TOPOLOGIES]
+    os.makedirs(output_dir, exist_ok=True)
+    path = os.path.join(output_dir, f"{problem_name}_topology.csv")
+
+    all_results = {label: [] for label in topo_labels}
+
+    for run in range(runs):
+        s = seed + run * 100
+        seeds = [s + i for i in range(n_islands)]
+        print(f"\n── Run {run+1}/{runs}  (seed={s}) ──────────────────")
+        problem = problem_factory(s)
+
+        for topo in ALL_TOPOLOGIES:
+            label = f"AIPSA-GM ({topo})"
+            print(f"  [{topo}] ...", end=' ', flush=True)
+            t0 = time.time()
+            _, cost, _ = aipsa_gm(
+                problem,
+                n_islands=n_islands,
+                T0=T0, alpha_cool=ALPHA, L=L, T_min=T_MIN,
+                max_iter=PER_ISLAND,
+                topology=topo,
+                migration_interval=MIGRATION_INTERVAL,
+                adaptive_heat=adaptive_heat,
+                migration_policy='guided',
+                seeds=seeds
+            )
+            elapsed = time.time() - t0
+            print(f"cost={cost:.2f}  ({elapsed:.1f}s)")
+            all_results[label].append({'cost': cost, 'time': elapsed})
+
+    # Print summary table
+    print()
+    print("=" * 65)
+    print(f"Experiment 5: Topology Comparison")
+    print(f"Problem: {problem_name} | Islands: {n_islands} | Runs: {runs}")
+    print("=" * 65)
+    print(f"{'Topology':<30} {'Mean Cost':>12} {'Best Cost':>12} {'Avg Time':>10}")
+    print("-" * 65)
+
+    best_mean = min(
+        sum(v['cost'] for v in vals) / runs
+        for vals in all_results.values()
+    )
+    for label in topo_labels:
+        vals = all_results[label]
+        mean_cost = sum(v['cost'] for v in vals) / runs
+        best_cost = min(v['cost'] for v in vals)
+        mean_time = sum(v['time'] for v in vals) / runs
+        marker = " ◀" if mean_cost == best_mean else ""
+        print(f"{label:<30} {mean_cost:>12.2f} {best_cost:>12.2f} "
+              f"{mean_time:>9.1f}s{marker}")
+
+    print("=" * 65)
+
+    # Save CSV
+    with open(path, 'w', newline='') as f:
+        writer = csv.writer(f)
+        writer.writerow(['run', 'topology', 'cost', 'time_sec'])
+        for run_idx in range(runs):
+            for topo in ALL_TOPOLOGIES:
+                label = f"AIPSA-GM ({topo})"
+                v = all_results[label][run_idx]
+                writer.writerow([
+                    run_idx + 1, label,
+                    round(v['cost'], 4),
+                    round(v['time'], 2),
+                ])
+
+    print(f"\nTopology results saved to: {path}")
+
+
+def run_async_experiment(problem_factory, problem_name, n_islands,
+                         runs, seed, adaptive_heat, output_dir="results"):
+    """
+    Experiment 4: Compare synchronous (Baseline B) vs asynchronous (AIPSA-GM) migration.
+    Both use guided migration policy for fair comparison.
+    Saves results to {problem_name}_async_vs_sync.csv
+    """
+    labels = ['Baseline B (sync)', 'AIPSA-GM (async)']
+    os.makedirs(output_dir, exist_ok=True)
+    path = os.path.join(output_dir, f"{problem_name}_async_vs_sync.csv")
+
+    all_results = {label: [] for label in labels}
+    n_rounds = max(PER_ISLAND // (STEPS_PER_ROUND * L), 10)
+
+    for run in range(runs):
+        s = seed + run * 100
+        seeds = [s + i for i in range(n_islands)]
+        print(f"\n── Run {run+1}/{runs}  (seed={s}) ──────────────────")
+        problem = problem_factory(s)
+
+        # ── Baseline B: Synchronous Islands ────
+        print(f"  [Baseline B (sync)] ...", end=' ', flush=True)
+        t0 = time.time()
+        _, cost, _ = synchronous_islands(
+            problem,
+            n_islands=n_islands,
+            T0=T0, alpha=ALPHA, L=L,
+            steps_per_round=STEPS_PER_ROUND,
+            n_rounds=n_rounds,
+            seeds=seeds
+        )
+        elapsed = time.time() - t0
+        print(f"cost={cost:.2f}  ({elapsed:.1f}s)")
+        all_results['Baseline B (sync)'].append({'cost': cost, 'time': elapsed})
+
+        # ── AIPSA-GM: Asynchronous Migration ───
+        print(f"  [AIPSA-GM (async)] ...", end=' ', flush=True)
+        t0 = time.time()
+        _, cost, _ = aipsa_gm(
+            problem,
+            n_islands=n_islands,
+            T0=T0, alpha_cool=ALPHA, L=L, T_min=T_MIN,
+            max_iter=PER_ISLAND,
+            topology=TOPOLOGY,
+            migration_interval=MIGRATION_INTERVAL,
+            adaptive_heat=adaptive_heat,
+            migration_policy='guided',
+            seeds=seeds
+        )
+        elapsed = time.time() - t0
+        print(f"cost={cost:.2f}  ({elapsed:.1f}s)")
+        all_results['AIPSA-GM (async)'].append({'cost': cost, 'time': elapsed})
+
+    # Print summary table
+    print()
+    print("=" * 70)
+    print(f"Experiment 4: Async vs Sync Migration")
+    print(f"Problem: {problem_name} | Islands: {n_islands} | Runs: {runs}")
+    print("=" * 70)
+    print(f"{'Solver':<30} {'Mean Cost':>12} {'Best Cost':>12} "
+          f"{'Avg Time':>10} {'Speedup':>10}")
+    print("-" * 70)
+
+    sync_mean_time = sum(v['time'] for v in all_results['Baseline B (sync)']) / runs
+    best_mean = min(
+        sum(v['cost'] for v in vals) / runs
+        for vals in all_results.values()
+    )
+    for label in labels:
+        vals = all_results[label]
+        mean_cost = sum(v['cost'] for v in vals) / runs
+        best_cost = min(v['cost'] for v in vals)
+        mean_time = sum(v['time'] for v in vals) / runs
+        # Speedup: sync_time / this_time (>1 means faster than sync)
+        speedup = sync_mean_time / mean_time if mean_time > 0 else 0
+        marker = " ◀" if mean_cost == best_mean else ""
+        print(f"{label:<30} {mean_cost:>12.2f} {best_cost:>12.2f} "
+              f"{mean_time:>9.1f}s {speedup:>9.2f}x{marker}")
+
+    print("=" * 70)
+
+    # Save CSV
+    with open(path, 'w', newline='') as f:
+        writer = csv.writer(f)
+        writer.writerow(['run', 'solver', 'cost', 'time_sec'])
+        for run_idx in range(runs):
+            for label in labels:
+                v = all_results[label][run_idx]
+                writer.writerow([
+                    run_idx + 1, label,
+                    round(v['cost'], 4),
+                    round(v['time'], 2),
+                ])
+
+    print(f"\nAsync vs Sync results saved to: {path}")
+
+
+def run_adaptive_experiment(problem_factory, problem_name, n_islands,
+                            runs, seed, output_dir="results"):
+    """
+    Experiment 3: Compare fixed cooling vs adaptive cooling on AIPSA-GM.
+    Runs AIPSA-GM (guided) twice: once with adaptive_heat=True, once False.
+    Saves results to {problem_name}_adaptive_temp.csv
+    """
+    labels = ['AIPSA-GM (fixed cooling)', 'AIPSA-GM (adaptive cooling)']
+    os.makedirs(output_dir, exist_ok=True)
+    path = os.path.join(output_dir, f"{problem_name}_adaptive_temp.csv")
+
+    all_results = {label: [] for label in labels}
+
+    for run in range(runs):
+        s = seed + run * 100
+        seeds = [s + i for i in range(n_islands)]
+        print(f"\n── Run {run+1}/{runs}  (seed={s}) ──────────────────")
+        problem = problem_factory(s)
+
+        for adaptive_heat, label in [(False, labels[0]), (True, labels[1])]:
+            print(f"  [{label}] ...", end=' ', flush=True)
+            t0 = time.time()
+            _, cost, _ = aipsa_gm(
+                problem,
+                n_islands=n_islands,
+                T0=T0, alpha_cool=ALPHA, L=L, T_min=T_MIN,
+                max_iter=PER_ISLAND,
+                topology=TOPOLOGY,
+                migration_interval=MIGRATION_INTERVAL,
+                adaptive_heat=adaptive_heat,
+                migration_policy='guided',
+                seeds=seeds
+            )
+            elapsed = time.time() - t0
+            print(f"cost={cost:.2f}  ({elapsed:.1f}s)")
+            all_results[label].append({'cost': cost, 'time': elapsed})
+
+    # Print summary table
+    print()
+    print("=" * 65)
+    print(f"Experiment 3: Adaptive Temperature Comparison")
+    print(f"Problem: {problem_name} | Islands: {n_islands} | Runs: {runs}")
+    print("=" * 65)
+    print(f"{'Solver':<35} {'Mean Cost':>10} {'Best Cost':>10} "
+          f"{'Std Dev':>10} {'Avg Time':>10}")
+    print("-" * 65)
+
+    best_mean = min(
+        sum(v['cost'] for v in vals) / runs
+        for vals in all_results.values()
+    )
+    for label in labels:
+        vals = all_results[label]
+        costs = [v['cost'] for v in vals]
+        times = [v['time'] for v in vals]
+        mean_cost = sum(costs) / runs
+        best_cost = min(costs)
+        mean_time = sum(times) / runs
+        # Standard deviation
+        variance = sum((c - mean_cost) ** 2 for c in costs) / runs
+        std_dev = variance ** 0.5
+        marker = " ◀" if mean_cost == best_mean else ""
+        print(f"{label:<35} {mean_cost:>10.2f} {best_cost:>10.2f} "
+              f"{std_dev:>10.2f} {mean_time:>9.1f}s{marker}")
+
+    print("=" * 65)
+
+    # Save CSV with per-run data
+    with open(path, 'w', newline='') as f:
+        writer = csv.writer(f)
+        writer.writerow(['run', 'solver', 'cost', 'time_sec'])
+        for run_idx in range(runs):
+            for label in labels:
+                v = all_results[label][run_idx]
+                writer.writerow([
+                    run_idx + 1, label,
+                    round(v['cost'], 4),
+                    round(v['time'], 2),
+                ])
+
+    print(f"\nAdaptive temperature results saved to: {path}")
+
+
 def main():
     parser = argparse.ArgumentParser(description='AIPSA-GM Experiment Runner')
     parser.add_argument('--problem', choices=['tsp', 'rastrigin'], default='tsp')
@@ -337,6 +597,12 @@ def main():
                         help='Scalability mode: test n_islands = 2, 4, 8, 16 automatically')
     parser.add_argument('--exp2', action='store_true',
                         help='Experiment 2: compare all four migration policies')
+    parser.add_argument('--exp3', action='store_true',
+                        help='Experiment 3: compare fixed vs adaptive cooling')
+    parser.add_argument('--exp4', action='store_true',
+                        help='Experiment 4: compare sync vs async migration')
+    parser.add_argument('--exp5', action='store_true',
+                        help='Experiment 5: compare ring, full, random_k topologies')
     parser.add_argument('--migration',
                         choices=ALL_MIGRATION_POLICIES,
                         default='guided',
@@ -367,6 +633,47 @@ def main():
         print(f"Policies: {ALL_MIGRATION_POLICIES}")
         print(f"Runs: {args.runs}  |  N_islands: {n_islands}  |  Topology: {TOPOLOGY}\n")
         run_migration_experiment(
+            problem_factory=problem_factory,
+            problem_name=problem_name,
+            n_islands=n_islands,
+            runs=args.runs,
+            seed=args.seed,
+            adaptive_heat=adaptive_heat,
+        )
+        return
+
+    # ── Experiment 3: Adaptive Temperature ────
+    if args.exp3:
+        print(f"Mode: Experiment 3 — Fixed vs Adaptive Cooling")
+        print(f"Runs: {args.runs}  |  N_islands: {n_islands}  |  Topology: {TOPOLOGY}\n")
+        run_adaptive_experiment(
+            problem_factory=problem_factory,
+            problem_name=problem_name,
+            n_islands=n_islands,
+            runs=args.runs,
+            seed=args.seed,
+        )
+        return
+
+    # ── Experiment 4: Async vs Sync ───────────
+    if args.exp4:
+        print(f"Mode: Experiment 4 — Async vs Sync Migration")
+        print(f"Runs: {args.runs}  |  N_islands: {n_islands}  |  Topology: {TOPOLOGY}\n")
+        run_async_experiment(
+            problem_factory=problem_factory,
+            problem_name=problem_name,
+            n_islands=n_islands,
+            runs=args.runs,
+            seed=args.seed,
+            adaptive_heat=adaptive_heat,
+        )
+        return
+
+    # ── Experiment 5: Topology Comparison ─────
+    if args.exp5:
+        print(f"Mode: Experiment 5 — Topology Comparison (ring, full, random_k)")
+        print(f"Runs: {args.runs}  |  N_islands: {n_islands}\n")
+        run_topology_experiment(
             problem_factory=problem_factory,
             problem_name=problem_name,
             n_islands=n_islands,

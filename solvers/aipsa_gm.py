@@ -8,6 +8,17 @@ Features:
   - Asynchronous buffered migration (non-blocking queue, no global barrier)
   - Topology-aware communication: 'ring', 'full', 'random_k'
   - Migration policy: 'guided', 'quality_only', 'best_only', 'random'
+
+Fixes (v3):
+  - Auto-calculate alpha_cool so temperature schedule spans full iteration budget.
+  - Phase-aware adaptive heating: only allow reheating in first 60% of iterations,
+    force monotone cooling in final 40% for fine-grained convergence.
+  - Reheat factor decays linearly with progress (aggressive early, gentle later).
+  - Dynamic diversity injection threshold: scales with temperature ratio,
+    more permissive at high T (exploration), stricter at low T (exploitation).
+  - Migration check happens both inside inner loop (every migration_interval)
+    AND at each cooling step boundary, for faster response.
+  - Adaptive heating cap at T0 * 0.3 (tighter than v2).
 """
 
 import multiprocessing as mp
@@ -100,6 +111,65 @@ def _select_migrant(incoming, best, best_cost, problem,
         )
 
 
+def _process_incoming(my_queue, best, best_cost, current, current_cost,
+                      problem, migration_policy, alpha_w, beta_w,
+                      progress_ratio):
+    """
+    Drain the incoming migration queue and apply the best candidate.
+    Returns updated (best, best_cost, current, current_cost, migrated_flag).
+
+    progress_ratio: float in [0, 1] indicating how far along we are.
+        Used to scale diversity injection threshold:
+        - Early (progress ~0): more permissive, accept diverse solutions easily
+        - Late  (progress ~1): strict, only accept clear improvements
+    """
+    incoming = []
+    while True:
+        try:
+            msg = my_queue.get_nowait()
+            incoming.append(msg)
+        except Exception:
+            break
+
+    if not incoming:
+        return best, best_cost, current, current_cost, False
+
+    best_candidate = _select_migrant(
+        incoming, best, best_cost, problem,
+        migration_policy, alpha_w, beta_w
+    )
+
+    if best_candidate is None:
+        return best, best_cost, current, current_cost, False
+
+    migrated = False
+
+    if best_candidate['cost'] < best_cost:
+        # Strict improvement: update both best and current
+        best = best_candidate['solution'][:]
+        best_cost = best_candidate['cost']
+        current = best[:]
+        current_cost = best_cost
+        migrated = True
+
+    elif migration_policy in ('guided', 'quality_only'):
+        # Dynamic diversity injection:
+        # - cost_threshold: starts at 1.3 (30% worse OK), decays to 1.05
+        # - diversity_threshold: starts at 0.15 (easy to trigger), rises to 0.5
+        cost_threshold = 1.30 - 0.25 * progress_ratio      # 1.30 -> 1.05
+        diversity_threshold = 0.15 + 0.35 * progress_ratio  # 0.15 -> 0.50
+
+        diversity = problem.distance(best_candidate['solution'], best)
+        cost_ratio = best_candidate['cost'] / (best_cost + 1e-10)
+
+        if diversity > diversity_threshold and cost_ratio < cost_threshold:
+            current = best_candidate['solution'][:]
+            current_cost = best_candidate['cost']
+            migrated = True
+
+    return best, best_cost, current, current_cost, migrated
+
+
 def _island_worker(args):
     """
     AIPSA-GM island worker with adaptive temperature and async migration.
@@ -116,6 +186,13 @@ def _island_worker(args):
     logger = SALogger(log_file=log_file, island_id=island_id)
     logger.start()
 
+    # ── Auto-calculate alpha_cool so T reaches T_min when max_iter is hit ──
+    if max_iter and max_iter > 0:
+        total_cooling_steps = max(max_iter // L, 1)
+        alpha_cool_auto = (T_min / T0) ** (1.0 / total_cooling_steps)
+        # Use the slower (larger) of user-specified and auto-calculated
+        alpha_cool = max(alpha_cool, alpha_cool_auto)
+
     # Initialize
     current = problem.init_solution()
     current_cost = problem.cost(current)
@@ -123,16 +200,21 @@ def _island_worker(args):
     best_cost = current_cost
     T = T0
 
+    # Adaptive heating parameters
+    T_heat_cap = T0 * 0.3          # never reheat above 30% of T0
+    HEAT_PHASE_END = 0.6           # stop reheating after 60% of iterations
+
     iteration = 0
     accepted = 0
     total_moves = 0
     window_accepted = 0
     window_moves = 0
-    window_size = L * 5  # adaptive temperature window
+    window_size = L * 5
 
+    effective_max_iter = max_iter if max_iter else float('inf')
     my_queue = queues[island_id]
 
-    # Estimate total cooling steps for progress bar (island 0 only)
+    # Progress bar (island 0 only)
     estimated_steps = int(math.log(T_min / T0) / math.log(alpha_cool)) if alpha_cool < 1 else 1000
     show_bar = (island_id == 0 and _TQDM_AVAILABLE)
     pbar = tqdm(total=estimated_steps, desc="Island-0", unit="cool",
@@ -142,8 +224,9 @@ def _island_worker(args):
         if pbar is not None:
             pbar.set_postfix(T=f"{T:.2f}", best=f"{best_cost:.2f}")
             pbar.update(1)
+
         for _ in range(L):
-            if max_iter and iteration >= max_iter:
+            if iteration >= effective_max_iter:
                 break
 
             # SA step
@@ -165,17 +248,22 @@ def _island_worker(args):
             window_moves += 1
             iteration += 1
 
-            # --- Adaptive temperature adjustment ---
+            # ── Adaptive temperature adjustment ──
             if window_moves >= window_size:
+                progress = iteration / effective_max_iter
                 r = window_accepted / window_moves
-                if r < r_low and adaptive_heat:
-                    T *= 1.1   # too cold, heat up (only if adaptive_heat=True)
+
+                if r < r_low and adaptive_heat and progress < HEAT_PHASE_END:
+                    # Reheat factor decays with progress: 1.10 -> 1.02
+                    heat_factor = 1.10 - 0.08 * (progress / HEAT_PHASE_END)
+                    T = min(T * heat_factor, T_heat_cap)
                 elif r > r_high:
-                    T *= 0.9   # too hot, cool down
+                    T *= 0.9
+
                 window_accepted = 0
                 window_moves = 0
 
-            # --- Async outgoing migration ---
+            # ── Async outgoing migration ──
             if iteration % migration_interval == 0:
                 neighbor_ids = _get_neighbors_topology(
                     island_id, n_islands, topology, k_neighbors)
@@ -186,38 +274,21 @@ def _island_worker(args):
                         'cost': best_cost
                     })
 
-        # --- Async incoming migration (outside inner loop, once per cooling step) ---
-        # NOTE: avoid my_queue.empty() — it hangs on Windows with manager.Queue()
-        incoming = []
-        while True:
-            try:
-                msg = my_queue.get_nowait()
-                incoming.append(msg)
-            except Exception:
-                break
+                # Also check incoming during inner loop for faster response
+                progress = iteration / effective_max_iter
+                best, best_cost, current, current_cost, _ = _process_incoming(
+                    my_queue, best, best_cost, current, current_cost,
+                    problem, migration_policy, alpha_w, beta_w,
+                    progress
+                )
 
-        if incoming:
-            best_candidate = _select_migrant(
-                incoming, best, best_cost, problem,
-                migration_policy, alpha_w, beta_w
-            )
-
-            if best_candidate is not None:
-                if best_candidate['cost'] < best_cost:
-                    # Strict improvement: update both best and current
-                    best = best_candidate['solution'][:]
-                    best_cost = best_candidate['cost']
-                    current = best[:]
-                    current_cost = best_cost
-                elif migration_policy in ('guided', 'quality_only') and \
-                        _utility(best_candidate['solution'], best_candidate['cost'],
-                                 best, best_cost,
-                                 [best_candidate['cost'], best_cost],
-                                 problem, alpha_w, beta_w) > 0.3:
-                    # Diversity injection: only reset current,
-                    # keep best unchanged so we don't regress
-                    current = best_candidate['solution'][:]
-                    current_cost = best_candidate['cost']
+        # ── Also check incoming at cooling step boundary ──
+        progress = iteration / effective_max_iter
+        best, best_cost, current, current_cost, _ = _process_incoming(
+            my_queue, best, best_cost, current, current_cost,
+            problem, migration_policy, alpha_w, beta_w,
+            progress
+        )
 
         # Standard cooling
         T *= alpha_cool
@@ -226,7 +297,7 @@ def _island_worker(args):
         acc_rate = accepted / total_moves if total_moves > 0 else 0.0
         logger.log(iteration, T, current_cost, best_cost, acc_rate)
 
-        if max_iter and iteration >= max_iter:
+        if iteration >= effective_max_iter:
             break
 
     if pbar is not None:
@@ -254,7 +325,10 @@ def aipsa_gm(problem, n_islands=4, T0=1000.0, alpha_cool=0.99, L=100,
             alpha_w + beta_w should equal 1.0
             higher beta_w => more diversity-driven migration
         adaptive_heat: if True, allow temperature to increase when acceptance
-            rate is too low (good for multimodal problems like Rastrigin).
+            rate is too low. Reheating is phase-aware:
+            - Only active in first 60% of iterations
+            - Reheat factor decays linearly (1.10 -> 1.02)
+            - Temperature capped at T0 * 0.3
             Set to False for combinatorial problems like TSP where monotone
             cooling is more stable.
         migration_policy: 'guided' (default), 'quality_only', 'best_only', 'random'
@@ -262,6 +336,11 @@ def aipsa_gm(problem, n_islands=4, T0=1000.0, alpha_cool=0.99, L=100,
             'quality_only' - select by solution quality only
             'best_only'    - select strictly lowest cost solution
             'random'       - select random incoming solution
+
+    Note:
+        alpha_cool is auto-adjusted if max_iter is set, to ensure the
+        temperature schedule spans the full iteration budget. The slower
+        (larger) of the user-supplied and auto-calculated alpha_cool is used.
 
     Returns:
         best_solution, best_cost, all_records

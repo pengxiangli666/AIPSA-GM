@@ -1,0 +1,11 @@
+run,solver,cost,time_sec
+1,AIPSA-GM (fixed cooling),29354.3683,22.78
+1,AIPSA-GM (adaptive cooling),35965.3428,28.89
+2,AIPSA-GM (fixed cooling),29271.4493,25.89
+2,AIPSA-GM (adaptive cooling),36440.6281,29.01
+3,AIPSA-GM (fixed cooling),28905.5184,22.75
+3,AIPSA-GM (adaptive cooling),37026.5953,28.55
+4,AIPSA-GM (fixed cooling),30322.2625,25.56
+4,AIPSA-GM (adaptive cooling),36923.4355,28.53
+5,AIPSA-GM (fixed cooling),29708.8274,22.96
+5,AIPSA-GM (adaptive cooling),37684.014,28.46
