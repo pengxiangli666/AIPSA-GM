@@ -1,5 +1,8 @@
 # AIPSA-GM: Adaptive Islanded Parallel Simulated Annealing with Guided Migration
 
+## Team
+
+Pengxiang Li, Weilun Qiu, Jinkuo Ha
 
 ## Overview
 
@@ -131,7 +134,7 @@ Options:
 
 ### Experiment 1: Is Parallel SA Beneficial?
 
-**TSP 1000 cities | Scalability across island counts | 3 runs**
+**TSP 1000 cities | Scalability across island counts | Full topology | 3 runs**
 
 | n_islands | Serial SA | Baseline A | Baseline B | AIPSA-GM (guided) |
 |-----------|-----------|------------|------------|-------------------|
@@ -140,11 +143,20 @@ Options:
 | 8         | 46,544    | 45,961     | 32,069     | **26,888** ◀      |
 | 16        | 46,544    | 45,931     | 30,973     | **25,876** ◀      |
 
+**Rastrigin 10dims | Scalability across island counts | Ring topology | 3 runs**
+
+| n_islands | Serial SA | Baseline A | Baseline B | AIPSA-GM (guided) |
+|-----------|-----------|------------|------------|-------------------|
+| 2         | 17.09     | 13.81      | 9.39       | **7.12** ◀        |
+| 4         | 17.09     | 14.08      | 7.76       | **5.43** ◀        |
+| 8         | 17.09     | 10.57      | **4.08**   | 4.26              |
+| 16        | 17.09     | 11.01      | 6.55       | **2.33** ◀        |
+
 **Key findings:**
-- AIPSA-GM consistently achieves the best cost across all island configurations.
-- Cost improves steadily as islands increase (33,747 → 25,876), demonstrating good scalability.
-- Baseline A (independent replicas, no migration) barely improves over Serial SA, proving that migration — not just parallelism — is the key driver of improvement.
-- AIPSA-GM outperforms Baseline B (synchronous) by 12–16%, showing the benefit of asynchronous guided migration.
+- **TSP:** AIPSA-GM consistently achieves the best cost across all island configurations. Cost improves steadily as islands increase (33,747 → 25,876), demonstrating good scalability.
+- **Rastrigin:** AIPSA-GM wins at 2, 4, and 16 islands. At 8 islands it is near-tied with Baseline B (4.26 vs 4.08). At 16 islands AIPSA-GM achieves 2.33, a 64% improvement over Baseline B's 6.55.
+- Baseline A (independent replicas, no migration) barely improves over Serial SA on TSP, proving that migration — not just parallelism — is the key driver of improvement.
+- TSP scalability uses full topology (optimal for ≤16 islands on combinatorial problems). Rastrigin scalability uses ring topology, which scales better for continuous optimization by limiting communication overhead while preserving island diversity.
 
 ---
 
