@@ -1,5 +1,0 @@
-run,policy,cost,time_sec
-1,AIPSA-GM (random),11246.9546,7.66
-1,AIPSA-GM (best_only),10964.3205,7.72
-1,AIPSA-GM (quality_only),11189.9805,7.7
-1,AIPSA-GM (guided),11326.3225,9.85

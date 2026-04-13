@@ -1,0 +1,11 @@
+run,solver,cost,time_sec
+1,Baseline B (sync),33464.2235,18.7
+1,AIPSA-GM (async),28802.7378,18.4
+2,Baseline B (sync),33377.391,19.1
+2,AIPSA-GM (async),28817.5005,18.57
+3,Baseline B (sync),33734.1779,18.91
+3,AIPSA-GM (async),29025.2667,18.21
+4,Baseline B (sync),33595.9645,19.15
+4,AIPSA-GM (async),29813.401,18.45
+5,Baseline B (sync),34498.0877,18.92
+5,AIPSA-GM (async),29624.1258,18.3

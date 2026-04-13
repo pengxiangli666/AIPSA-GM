@@ -1,0 +1,17 @@
+n_islands,solver,mean_cost,best_cost,mean_time
+2,Serial SA,18.1076,13.5762,1.39
+2,Baseline A,14.901,12.2854,1.5
+2,Baseline B,11.227,6.0131,2.62
+2,AIPSA-GM (guided),6.0819,4.757,3.28
+4,Serial SA,18.1076,13.5762,1.4
+4,Baseline A,13.7106,11.0297,1.71
+4,Baseline B,7.9083,4.5394,2.97
+4,AIPSA-GM (guided),4.8976,2.6504,4.11
+8,Serial SA,18.1076,13.5762,1.4
+8,Baseline A,12.7017,9.9804,2.16
+8,Baseline B,5.8884,2.4619,3.95
+8,AIPSA-GM (guided),3.7912,1.9655,15.67
+16,Serial SA,18.1076,13.5762,1.4
+16,Baseline A,7.4846,4.311,2.9
+16,Baseline B,5.788,2.4571,7.36
+16,AIPSA-GM (guided),2.8669,2.1781,57.61

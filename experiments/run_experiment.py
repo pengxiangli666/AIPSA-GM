@@ -14,6 +14,9 @@ Usage:
     # Experiment 2: Migration Policy comparison
     python -m experiments.run_experiment --exp2 --cities 500 --runs 5
     python -m experiments.run_experiment --migration guided --cities 500 --runs 5
+
+    # Custom output directory (for clean data collection)
+    python -m experiments.run_experiment --outdir results/2025-01-15
 """
 
 import sys
@@ -54,7 +57,7 @@ N_ROUNDS        = PER_ISLAND // (STEPS_PER_ROUND * L)
 
 # AIPSA-GM specific
 MIGRATION_INTERVAL = 300
-TOPOLOGY           = 'ring' # 'ring', 'full', or 'random_k'
+TOPOLOGY           = 'full' # 'ring', 'full', or 'random_k'
 ADAPTIVE_HEAT_TSP        = False
 ADAPTIVE_HEAT_RASTRIGIN  = True
 
@@ -477,7 +480,6 @@ def run_async_experiment(problem_factory, problem_name, n_islands,
         mean_cost = sum(v['cost'] for v in vals) / runs
         best_cost = min(v['cost'] for v in vals)
         mean_time = sum(v['time'] for v in vals) / runs
-        # Speedup: sync_time / this_time (>1 means faster than sync)
         speedup = sync_mean_time / mean_time if mean_time > 0 else 0
         marker = " ◀" if mean_cost == best_mean else ""
         print(f"{label:<30} {mean_cost:>12.2f} {best_cost:>12.2f} "
@@ -559,7 +561,6 @@ def run_adaptive_experiment(problem_factory, problem_name, n_islands,
         mean_cost = sum(costs) / runs
         best_cost = min(costs)
         mean_time = sum(times) / runs
-        # Standard deviation
         variance = sum((c - mean_cost) ** 2 for c in costs) / runs
         std_dev = variance ** 0.5
         marker = " ◀" if mean_cost == best_mean else ""
@@ -607,9 +608,19 @@ def main():
                         choices=ALL_MIGRATION_POLICIES,
                         default='guided',
                         help='Migration policy for AIPSA-GM (default: guided)')
+    # ── NEW: custom output directory ──────────────────────────────────────────
+    parser.add_argument('--outdir', type=str, default=None,
+                        help='Output directory for CSV results. '
+                             'Defaults to "results". '
+                             'Example: --outdir results/2025-01-15')
     args = parser.parse_args()
 
     n_islands = args.islands if args.islands else N_ISLANDS
+
+    # ── Resolve output directory ──────────────────────────────────────────────
+    output_dir = args.outdir if args.outdir else "results"
+    os.makedirs(output_dir, exist_ok=True)
+
     solver_names = [
         'Serial SA', 'Baseline A', 'Baseline B',
         f'AIPSA-GM ({args.migration})'
@@ -627,6 +638,8 @@ def main():
         adaptive_heat = ADAPTIVE_HEAT_RASTRIGIN
         print(f"\nProblem: Rastrigin ({args.dims} dims)")
 
+    print(f"Output directory: {output_dir}")
+
     # ── Experiment 2: Migration Policy ────────
     if args.exp2:
         print(f"Mode: Experiment 2 — Migration Policy Comparison")
@@ -639,6 +652,7 @@ def main():
             runs=args.runs,
             seed=args.seed,
             adaptive_heat=adaptive_heat,
+            output_dir=output_dir,
         )
         return
 
@@ -652,6 +666,7 @@ def main():
             n_islands=n_islands,
             runs=args.runs,
             seed=args.seed,
+            output_dir=output_dir,
         )
         return
 
@@ -666,6 +681,7 @@ def main():
             runs=args.runs,
             seed=args.seed,
             adaptive_heat=adaptive_heat,
+            output_dir=output_dir,
         )
         return
 
@@ -680,6 +696,7 @@ def main():
             runs=args.runs,
             seed=args.seed,
             adaptive_heat=adaptive_heat,
+            output_dir=output_dir,
         )
         return
 
@@ -694,6 +711,7 @@ def main():
             runs=args.runs,
             seed=args.seed,
             adaptive_heat=adaptive_heat,
+            output_dir=output_dir,
         )
         return
 
@@ -717,7 +735,7 @@ def main():
     print_table(all_results, solver_names)
 
     csv_name = f"{problem_name}_islands{n_islands}" if args.islands else problem_name
-    save_csv(all_results, solver_names, csv_name)
+    save_csv(all_results, solver_names, csv_name, output_dir=output_dir)
 
 
 if __name__ == '__main__':
