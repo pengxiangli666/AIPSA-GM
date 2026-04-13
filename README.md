@@ -315,8 +315,15 @@ Options:
 
 ## AIPSA-GM Design Highlights
 
-### Quality-First Guided Migration
-The utility function `U = q × (1 + β·d)` makes quality the primary selection criterion, with diversity acting as a tie-breaker when candidates have similar cost. This avoids the failure mode where diverse-but-poor solutions are selected over good ones.
+### Quality-First Guided Migration (Multiplicative Utility)
+
+Unlike the additive formulation `U = α·q + β·d` proposed in the original design, we adopt a multiplicative utility:
+
+```
+U = q × (1 + β·d)
+```
+
+This guarantees quality as a hard prerequisite for selection — when `q ≈ 0`, the utility collapses to near-zero regardless of diversity, preventing low-quality but high-diversity candidates from being selected. Diversity serves purely as a tie-breaker bonus when candidates have similar cost. This avoids the failure mode of the additive form, where a diverse-but-poor solution can outscore a high-quality solution when diversity weight is non-trivial.
 
 ### Pool-Normalized Diversity
 Diversity is normalized against the current incoming migration pool rather than the entire search space diameter. This provides stable [0,1] diversity scores regardless of problem scale or dimensionality.
@@ -325,10 +332,17 @@ Diversity is normalized against the current incoming migration pool rather than 
 The cooling rate `alpha_cool` is automatically calculated from `max_iter` to ensure temperature reaches `T_min` exactly when iterations are exhausted. This prevents wasted computation from premature temperature depletion.
 
 ### Phase-Aware Adaptive Heating
-When enabled, reheating only occurs in the first 60% of iterations, with the reheat factor decaying from 1.10 to 1.02. Temperature is capped at `T0 × 0.3` to prevent runaway reheating.
+
+We extend the basic adaptive scheme with a phase-aware design that addresses the runaway reheating problem of naive adaptive temperature control:
+
+- **Reheating is restricted to the first 60% of iterations** to prevent disrupting late-stage convergence.
+- **The reheat factor decays linearly from 1.10 to 1.02** with iteration progress, reducing aggressiveness over time.
+- **Temperature is capped at T0 × 0.3** to prevent runaway reheating.
+
+This is motivated by the observation that aggressive reheating in later phases increases variance without improving solution quality. Experiment 3 confirms this design: adaptive cooling achieves −53% Mean Cost and −75% Std Dev on Rastrigin (8.56 → 4.02 mean, 4.22 → 1.07 std dev), while fixed cooling remains superior for TSP where reheating disrupts monotone convergence.
 
 ### Asynchronous Buffered Migration
-Islands communicate via non-blocking queues with no global barriers. Migration is checked both during the inner loop (every `migration_interval` steps) and at cooling step boundaries for faster response.
+Islands communicate via non-blocking queues with no global barriers. Migration is checked both during the inner loop (every `migration_interval` steps) and at cooling step boundaries for faster response. This eliminates synchronization idle time and allows computation and communication to overlap, with the async advantage growing from 3.6% at 2 islands to 16.5% at 16 islands.
 
 ---
 
