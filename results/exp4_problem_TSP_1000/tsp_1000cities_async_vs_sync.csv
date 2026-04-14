@@ -1,0 +1,21 @@
+run,solver,cost,time_sec
+1,Baseline B (sync),33464.2235,22.03
+1,AIPSA-GM (async),29435.9652,21.22
+2,Baseline B (sync),33377.391,22.15
+2,AIPSA-GM (async),29412.083,21.42
+3,Baseline B (sync),33734.1779,22.24
+3,AIPSA-GM (async),29511.7524,36.99
+4,Baseline B (sync),33595.9645,31.55
+4,AIPSA-GM (async),29689.0597,21.22
+5,Baseline B (sync),34498.0877,23.93
+5,AIPSA-GM (async),29517.3936,23.52
+6,Baseline B (sync),33884.6648,25.19
+6,AIPSA-GM (async),28987.2059,22.16
+7,Baseline B (sync),34158.9282,22.94
+7,AIPSA-GM (async),29563.6352,22.13
+8,Baseline B (sync),32914.9027,23.89
+8,AIPSA-GM (async),29007.5063,22.12
+9,Baseline B (sync),33979.8272,23.69
+9,AIPSA-GM (async),29213.4136,21.79
+10,Baseline B (sync),33666.8409,22.28
+10,AIPSA-GM (async),29474.4919,21.47
