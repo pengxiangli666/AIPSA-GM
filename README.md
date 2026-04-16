@@ -504,7 +504,7 @@ python3 run_tsp_chain_sweep.py
 | H2 | Adaptive temperature improves robustness | **Confirmed** | Rastrigin: -47% Mean Cost, -59% Std Dev. TSP: fixed wins 10/10 runs by 20%. Problem-dependent behavior confirmed. |
 | H3 | Async migration improves wall-clock performance | **Confirmed** | TSP: 1.06x speedup + 12.9% better cost, 10/10 wins. Advantage grows from 4.5% at 2 islands to 16.7% at 8 islands. |
 | H4 | Topology affects convergence | **Confirmed** | Full topology best for TSP (10/10 wins). Ring best for Rastrigin. Full causes 3x time overhead at 16 islands. |
-| H5 | GPU parallelism tradeoffs | | H5 | GPU parallelism provides meaningful acceleration with problem-dependent tradeoffs | **Confirmed** | Rastrigin: up to 67.4% quality gain (dims=10). TSP: up to 17.6% quality gain (10K cities). GPU wins all tested scales on both benchmarks. |
+| H5 | GPU parallelism provides meaningful acceleration with problem-dependent tradeoffs | **Confirmed** | Rastrigin: up to 67.4% quality gain (dims=10). TSP: up to 17.6% quality gain (10K cities). GPU wins all tested scales on both benchmarks. |
 
 ---
 
