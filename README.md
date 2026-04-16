@@ -311,6 +311,194 @@ Options:
 - **AIPSA-GM vs Serial SA improvement grows with island count:** 28% → 37% → 42% → 44% on TSP, confirming scalability benefit of guided parallel SA.
 
 ---
+---
+
+### Experiment 6 (H5): GPU Parallelism Tradeoffs
+
+**H5 Hypothesis:** GPU parallelism provides meaningful acceleration for SA, but its effectiveness is problem-dependent and requires sufficient problem scale to amortize hardware overhead.
+
+---
+
+#### GPU Implementation Design
+
+We extend AIPSA-GM with a GPU-accelerated SA solver implemented in CUDA C via CuPy's `RawModule` interface. The implementation consists of two benchmark-specific kernels:
+
+**Rastrigin GPU Kernel — Multi-Chain Parallel SA**
+
+The entire SA main loop runs inside a single CUDA kernel with zero per-step CPU↔GPU communication:
+
+```
+Each CUDA thread = one independent SA chain
+1024 threads run simultaneously on GPU
+CPU launches kernel once → reads result once
+```
+
+Key design choices:
+- LCG (Linear Congruential Generator) for on-device random number generation (no curand dependency)
+- Auto-calibrated cooling: `alpha = (T_min/T0)^(1/max_iter)` computed inside kernel
+- Per-thread local arrays store current and best solutions in register/local memory
+- Warmup-based time calibration: measures GPU speed first, then sets `max_iter` to match time budget
+
+**TSP GPU Kernel — Boltzmann-Weighted 2-opt**
+
+A novel approach extending the Metropolis criterion to parallel neighborhood search:
+
+```
+Each CUDA thread = one independent TSP SA chain
+Each chain uses standard random 2-opt with Boltzmann acceptance
+32 chains run in parallel (optimal for RTX 4090 memory bandwidth)
+```
+
+Unlike greedy best-2opt (which changes SA semantics to Hill Climbing), we preserve full SA stochastic acceptance:
+- Each step selects a random 2-opt swap
+- Acceptance follows `P(accept) = exp(-delta/T)` — identical to standard SA
+- Multiple chains provide diversity without sacrificing convergence depth
+
+This is theoretically grounded in Metropolis et al. (1953) and extended to exploit GPU parallelism.
+
+---
+
+#### Experimental Setup
+
+**Fair comparison protocol:** Both CPU and GPU receive the same wall-clock time budget (60 seconds). GPU speed is measured via a warmup run, and `max_iter` is set to fully utilize the time budget.
+
+| Parameter | Rastrigin | TSP |
+|-----------|-----------|-----|
+| Time budget | 60s | 60s |
+| GPU chains | 1024 | 32 |
+| Runs | 5 | 10 |
+| Platform | RTX 4090 (WSL2, CUDA 12.6) | RTX 4090 (WSL2, CUDA 12.6) |
+
+**Why N_CHAINS differs:**
+- Rastrigin: cost function is lightweight (vector ops), 1024 chains each get ~20M iters
+- TSP: requires dist_matrix access per step (memory-bound), 1024 chains cause bandwidth saturation; N_CHAINS=32 found optimal via sweep across [32, 64, 128, 256, 512, 1024, 2048]
+
+---
+
+#### Results
+
+**Rastrigin — GPU vs CPU (60s time budget, 5 runs)**
+
+| Dims | CPU Cost | GPU Cost | Quality Gain | CPU Iters | GPU Iters | Iter Ratio |
+|------|----------|----------|-------------|-----------|-----------|-----------|
+| 10   | 4.2624   | 1.3877   | **67.4%**   | 10,361,068 | 21,904,954,163 | 2114x |
+| 50   | 229.2561 | 103.7956 | **54.7%**   | 8,937,155  | 6,260,950,425  | 700x  |
+| 100  | 792.2807 | 419.6162 | **47.0%**   | 7,574,789  | 2,983,547,699  | 393x  |
+| 200  | 2132.4544| 1470.3526| **31.1%**   | 5,695,989  | 1,466,571,776  | 257x  |
+| 500  | 6734.9075| 5645.8206| **16.2%**   | 3,390,088  | 577,015,808    | 170x  |
+| 1000 | 14951.1336|13594.4674| **9.1%**   | 2,002,279  | 284,870,041    | 142x  |
+
+**TSP — GPU vs CPU (60s time budget, 10 runs)**
+
+| Cities | CPU Cost   | GPU Cost   | Quality Gain |
+|--------|------------|------------|-------------|
+| 500    | 18,667.6   | 17,646.6   | **5.5%**    |
+| 1000   | 29,054.7   | 27,502.3   | **5.3%**    |
+| 2000   | 81,236.8   | 73,912.8   | **9.0%**    |
+| 3000   | 178,866.9  | 166,324.4  | **7.0%**    |
+| 5000   | 494,954.7  | 452,871.6  | **8.5%**    |
+| 8000   | 1,335,795.9| 1,140,296.2| **14.6%**   |
+| 10,000 | 2,143,243.2| 1,767,074.8| **17.6%**   |
+
+GPU wins on **all** tested scales for both benchmarks.
+
+---
+
+#### Key Findings
+
+**Finding 1: Rastrigin — GPU advantage decreases with dimensionality**
+
+Gain drops monotonically from 67.4% (dims=10) to 9.1% (dims=1000). This reflects the tradeoff between GPU breadth and CPU depth:
+- Low dims: 1024 chains effectively cover the search space, diversity dominates
+- High dims: search space is `[-5.12, 5.12]^1000`, each chain is severely undersampled; both CPU and GPU struggle, narrowing the gap
+
+The Iter Ratio (2114x at dims=10, 142x at dims=1000) shows GPU throughput advantage shrinks with dimensionality because each step becomes more computationally expensive.
+
+**Finding 2: TSP — GPU advantage increases with city count**
+
+Gain grows from 5.5% (500 cities) to 17.6% (10,000 cities), with a performance inflection point at 3,000–5,000 cities. Two competing effects explain this:
+
+- **Positive:** Larger TSP instances have exponentially more local optima; CPU single-chain gets trapped more easily while GPU 32-chain diversity helps escape
+- **Negative:** Larger dist_matrix (100MB at 5,000 cities) saturates GPU L2 cache, increasing memory latency per step
+
+Beyond 5,000 cities, the diversity advantage dominates and gain resumes linear growth.
+
+**Finding 3: Optimal parallelism is hardware-constrained**
+
+Chain sweep results for TSP (30s budget, cities=5000):
+
+| N_CHAINS | Gain | Iters/Chain |
+|----------|------|------------|
+| 32       | **+22.4%** | 157,793 |
+| 64       | +22.3% | 153,020 |
+| 128      | +20.8% | 146,301 |
+| 512      | +17.7% | 132,943 |
+| 2048     | +14.3% | 114,247 |
+
+More chains = fewer iters per chain = less convergence depth. On RTX 4090, N_CHAINS=32 is optimal because the 100MB dist_matrix saturates memory bandwidth beyond this point. On higher-bandwidth hardware (e.g., A100 at 2039 GB/s vs 4090 at 1008 GB/s), the optimal N_CHAINS would likely be higher.
+
+**Finding 4: Benchmark structure determines GPU benefit pattern**
+
+| | Rastrigin | TSP |
+|--|-----------|-----|
+| GPU benefit | Decreases with scale | Increases with scale |
+| Key driver | Multi-chain diversity | Multi-chain diversity vs depth |
+| Bottleneck | Dimensionality curse | Memory bandwidth |
+| Best at | Low dims (67% gain) | Large cities (17.6% gain) |
+
+This confirms H5: GPU parallelism tradeoffs are fundamentally problem-dependent. Rastrigin (continuous multimodal) benefits most from breadth at small scale; TSP (discrete combinatorial) benefits most from diversity at large scale.
+
+---
+
+#### H5 Hypothesis Scorecard Update
+
+| # | Hypothesis | Result | Evidence |
+|---|-----------|--------|----------|
+| H5 | GPU parallelism provides meaningful acceleration with problem-dependent tradeoffs | **Confirmed** | Rastrigin: up to 67.4% quality gain (dims=10). TSP: up to 17.6% quality gain (10K cities). GPU wins all tested scales on both benchmarks. Optimal chain count constrained by hardware memory bandwidth. |
+
+---
+
+#### GPU Output Files
+
+| File | Description |
+|------|-------------|
+| `results/gpu_rastrigin_60time_5runs/gpu_final_rastrigin.csv` | Rastrigin GPU vs CPU (60s, 5 runs) |
+| `results/gpu_TSP_N_CHAINS_32_10runs/gpu_tsp_boltzmann.csv` | TSP GPU vs CPU (60s, 10 runs, N_CHAINS=32) |
+| `results/gpu_sweep/chain_sweep.csv` | N_CHAINS sweep results |
+
+#### GPU Source Files
+
+| File | Description |
+|------|-------------|
+| `solvers/gpu_sa_final.py` | Rastrigin CUDA kernel (multi-chain SA) |
+| `solvers/gpu_tsp_kernel.py` | TSP CUDA kernel (Boltzmann-weighted 2-opt) |
+| `experiments/run_gpu_final.py` | Rastrigin GPU experiment runner |
+| `experiments/run_gpu_tsp.py` | TSP GPU experiment runner |
+| `run_tsp_chain_sweep.py` | N_CHAINS optimization sweep |
+
+#### GPU Requirements
+
+```bash
+pip install cupy-cuda12x
+pip install nvidia-curand-cu12
+pip install nvidia-cuda-nvrtc-cu12
+export CUDA_PATH=/usr/local/cuda-12.6
+export PATH=$CUDA_PATH/bin:$PATH
+export LD_LIBRARY_PATH=$CUDA_PATH/lib64:$LD_LIBRARY_PATH
+```
+
+#### Run GPU Experiments
+
+```bash
+# Rastrigin: 60s budget, 5 runs
+python3 -m experiments.run_gpu_final --time 60 --runs 5 --outdir results/gpu_rastrigin
+
+# TSP: 60s budget, 10 runs, N_CHAINS=32
+python3 -m experiments.run_gpu_tsp --time 60 --runs 10 --outdir results/gpu_tsp
+
+# N_CHAINS sweep (find optimal chain count)
+python3 run_tsp_chain_sweep.py
+```
 
 ## Hypothesis Scorecard
 
