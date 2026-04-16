@@ -609,3 +609,320 @@ figures/
 3. **所有图统一 DPI=150**，保存格式用 PNG，报告里插图用即可
 4. **图12 双Y轴**的左右刻度范围要手动调整，避免折线重叠看不清
 5. **Exp 2 的 full topology 数据**（`exp2_problem_RASTRIGIN_dims_10_full` 和 `exp2_problem_RASTRIGIN_dims_30_full`）只在图14里用作对比，其他图不使用
+
+---
+
+## 图15：H5 — Rastrigin GPU vs CPU Quality Gain 折线图
+
+**数据文件：**
+```
+results/gpu_rastrigin_60time_5runs/gpu_final_rastrigin.csv
+```
+
+**图表内容：**
+- 类型：折线图
+- X轴：Dims (10, 50, 100, 200, 500, 1000)，对数刻度
+- Y轴：Quality Gain (%)
+- 单条深蓝折线，加数据点
+- 在每个点标注具体百分比
+- 添加水平参考线 y=0（CPU/GPU 持平线）
+- 标题：H5: GPU vs CPU — Rastrigin Quality Gain (60s budget, 1024 chains)
+
+**示例代码：**
+```python
+df = pd.read_csv('results/gpu_rastrigin_60time_5runs/gpu_final_rastrigin.csv')
+
+fig, ax = plt.subplots(figsize=(8, 5))
+
+ax.plot(df['n_dims'], df['quality_gain_pct'], 'o-',
+        color='#1565C0', linewidth=2.5, markersize=9,
+        markerfacecolor='white', markeredgewidth=2.5,
+        label='GPU Quality Gain')
+
+# 标注每个点的百分比
+for _, row in df.iterrows():
+    ax.annotate(f"{row['quality_gain_pct']:.1f}%",
+                xy=(row['n_dims'], row['quality_gain_pct']),
+                xytext=(0, 10), textcoords='offset points',
+                ha='center', fontsize=10,
+                color='#1565C0', fontweight='bold')
+
+# 参考线
+ax.axhline(y=0, color='gray', linestyle='--', linewidth=1, alpha=0.5)
+
+ax.set_xscale('log')
+ax.set_xticks([10, 50, 100, 200, 500, 1000])
+ax.get_xaxis().set_major_formatter(ticker.ScalarFormatter())
+ax.set_xlabel('Number of Dimensions (log scale)')
+ax.set_ylabel('Quality Gain (%) = (CPU - GPU) / CPU × 100')
+ax.set_title('H5: GPU vs CPU — Rastrigin Quality Gain\n(60s time budget, 1024 parallel chains)',
+             fontsize=13, fontweight='bold')
+ax.legend()
+
+plt.tight_layout()
+plt.savefig('figures/fig15_h5_rastrigin_gain.png')
+```
+
+---
+
+## 图16：H5 — TSP GPU vs CPU Quality Gain 折线图
+
+**数据文件：**
+```
+results/gpu_TSP_N_CHAINS_32_10runs/gpu_tsp_boltzmann.csv
+```
+
+**图表内容：**
+- 类型：折线图
+- X轴：Cities (500, 1000, 2000, 3000, 5000, 8000, 10000)
+- Y轴：Quality Gain (%)
+- 单条深蓝折线，加数据点
+- 用虚线圆圈标注 3000-5000 的 inflection point 区域
+- 添加水平参考线 y=0
+- 标注箭头说明"inflection point: memory bandwidth saturation"
+- 标题：H5: GPU vs CPU — TSP Quality Gain (60s budget, 32 chains, Boltzmann 2-opt)
+
+**示例代码：**
+```python
+df = pd.read_csv('results/gpu_TSP_N_CHAINS_32_10runs/gpu_tsp_boltzmann.csv')
+
+fig, ax = plt.subplots(figsize=(9, 5))
+
+ax.plot(df['n_cities'], df['quality_gain_pct'], 'o-',
+        color='#1565C0', linewidth=2.5, markersize=9,
+        markerfacecolor='white', markeredgewidth=2.5)
+
+# 标注每个点
+for _, row in df.iterrows():
+    ax.annotate(f"{row['quality_gain_pct']:.1f}%",
+                xy=(row['n_cities'], row['quality_gain_pct']),
+                xytext=(0, 10), textcoords='offset points',
+                ha='center', fontsize=10,
+                color='#1565C0', fontweight='bold')
+
+# 标注 inflection point 区域
+ax.axvspan(3000, 5000, alpha=0.1, color='orange',
+           label='Inflection zone\n(memory bandwidth saturation)')
+
+ax.annotate('Memory bandwidth\nsaturation zone',
+            xy=(4000, 7.5), xytext=(5500, 5),
+            fontsize=10, color='#E65100',
+            arrowprops=dict(arrowstyle='->', color='#E65100'))
+
+ax.axhline(y=0, color='gray', linestyle='--', linewidth=1, alpha=0.5)
+
+ax.set_xlabel('Number of Cities')
+ax.set_ylabel('Quality Gain (%) = (CPU - GPU) / CPU × 100')
+ax.set_title('H5: GPU vs CPU — TSP Quality Gain\n(60s time budget, 32 chains, Boltzmann-weighted 2-opt)',
+             fontsize=13, fontweight='bold')
+ax.xaxis.set_major_formatter(ticker.FuncFormatter(lambda x, _: f'{int(x):,}'))
+ax.legend(loc='upper left')
+
+plt.tight_layout()
+plt.savefig('figures/fig16_h5_tsp_gain.png')
+```
+
+---
+
+## 图17：H5 — GPU vs CPU Cost 对比柱状图（双 benchmark 并排）
+
+**数据文件：**
+```
+results/gpu_rastrigin_60time_5runs/gpu_final_rastrigin.csv
+results/gpu_TSP_N_CHAINS_32_10runs/gpu_tsp_boltzmann.csv
+```
+
+**图表内容：**
+- 类型：分组柱状图，左右两个 panel
+- 左：Rastrigin，选 dims=10 和 dims=1000 两个代表性点
+- 右：TSP，选 cities=500 和 cities=10000 两个代表性点
+- 每组：CPU 橙色 vs GPU 深蓝色
+- 标注 Gain 百分比
+- 标题：H5: GPU vs CPU — Cost Comparison at Representative Scales
+
+**示例代码：**
+```python
+df_ras = pd.read_csv('results/gpu_rastrigin_60time_5runs/gpu_final_rastrigin.csv')
+df_tsp = pd.read_csv('results/gpu_TSP_N_CHAINS_32_10runs/gpu_tsp_boltzmann.csv')
+
+fig, axes = plt.subplots(1, 2, figsize=(12, 5))
+
+# Rastrigin panel
+ax = axes[0]
+for dims, offset in [(10, -0.2), (1000, 0.2)]:
+    row = df_ras[df_ras['n_dims'] == dims].iloc[0]
+    ax.bar(f'dims={dims}\nCPU', row['cpu_cost'],
+           color='#FFB74D', edgecolor='white', width=0.35)
+    ax.bar(f'dims={dims}\nGPU', row['gpu_cost'],
+           color='#1565C0', edgecolor='white', width=0.35)
+    gain = row['quality_gain_pct']
+    ax.annotate(f'+{gain:.1f}%',
+                xy=(1, row['gpu_cost']),
+                xytext=(0, 5), textcoords='offset points',
+                ha='center', color='#1565C0', fontweight='bold')
+
+ax.set_title('Rastrigin\n(dims=10 vs dims=1000)', fontsize=12, fontweight='bold')
+ax.set_ylabel('Mean Cost (lower is better)')
+
+# TSP panel
+ax = axes[1]
+for cities in [500, 10000]:
+    row = df_tsp[df_tsp['n_cities'] == cities].iloc[0]
+    x_label_cpu = f'{cities:,}\nCPU'
+    x_label_gpu = f'{cities:,}\nGPU'
+    ax.bar(x_label_cpu, row['cpu_cost'], color='#FFB74D', edgecolor='white', width=0.35)
+    ax.bar(x_label_gpu, row['gpu_cost'], color='#1565C0', edgecolor='white', width=0.35)
+    gain = row['quality_gain_pct']
+    ax.annotate(f'+{gain:.1f}%',
+                xy=(x_label_gpu, row['gpu_cost']),
+                xytext=(0, 5), textcoords='offset points',
+                ha='center', color='#1565C0', fontweight='bold')
+
+ax.set_title('TSP\n(500 cities vs 10,000 cities)', fontsize=12, fontweight='bold')
+ax.set_ylabel('Mean Cost (lower is better)')
+ax.yaxis.set_major_formatter(ticker.FuncFormatter(lambda x, _: f'{x:,.0f}'))
+
+fig.suptitle('H5: GPU vs CPU — Cost Comparison at Representative Scales\n(60s time budget each)',
+             fontsize=14, fontweight='bold')
+plt.tight_layout()
+plt.savefig('figures/fig17_h5_cost_comparison.png')
+```
+
+---
+
+## 图18：H5 — N_CHAINS Sweep 折线图（TSP）
+
+**数据文件：**
+```
+results/gpu_sweep/chain_sweep.csv
+```
+
+**图表内容：**
+- 类型：折线图，3条线对应 cities=1000/3000/5000
+- X轴：N_CHAINS (32, 64, 128, 256, 512, 1024, 2048)，对数刻度
+- Y轴：Quality Gain (%)
+- 三条不同颜色折线
+- 标注最优点（cities=1000 在 N_CHAINS=32 时最高）
+- 右侧 Y2 轴：Iters/Chain（虚线）
+- 标题：H5: Optimal N_CHAINS — Diversity vs Convergence Depth Tradeoff
+
+**示例代码：**
+```python
+df = pd.read_csv('results/gpu_sweep/chain_sweep.csv')
+
+city_colors = {1000: '#1565C0', 3000: '#43A047', 5000: '#E65100'}
+
+fig, ax1 = plt.subplots(figsize=(9, 5))
+ax2 = ax1.twinx()
+
+for n_cities, color in city_colors.items():
+    sub = df[df['n_cities'] == n_cities].sort_values('n_chains')
+    ax1.plot(sub['n_chains'], sub['gain_pct'], 'o-',
+             color=color, linewidth=2.5, markersize=8,
+             label=f'{n_cities:,} cities (gain)')
+    ax2.plot(sub['n_chains'], sub['iters_per_chain'], 's--',
+             color=color, linewidth=1.5, markersize=6,
+             alpha=0.6, label=f'{n_cities:,} cities (iters/chain)')
+
+ax1.set_xscale('log')
+ax1.set_xticks([32, 64, 128, 256, 512, 1024, 2048])
+ax1.get_xaxis().set_major_formatter(ticker.ScalarFormatter())
+ax1.set_xlabel('N_CHAINS (log scale)')
+ax1.set_ylabel('Quality Gain (%)', color='black')
+ax2.set_ylabel('Iters per Chain', color='gray')
+ax2.tick_params(axis='y', labelcolor='gray')
+
+# 标注 N_CHAINS=32 最优
+ax1.axvline(x=32, color='red', linestyle=':', linewidth=1.5, alpha=0.7)
+ax1.annotate('Optimal\nN_CHAINS=32\n(RTX 4090)',
+             xy=(32, 22), xytext=(80, 20),
+             fontsize=10, color='red',
+             arrowprops=dict(arrowstyle='->', color='red'))
+
+lines1, labels1 = ax1.get_legend_handles_labels()
+ax1.legend(lines1, labels1, loc='upper right', fontsize=9)
+
+ax1.set_title('H5: N_CHAINS Sweep — Diversity vs Convergence Depth Tradeoff\n(TSP, 30s budget)',
+              fontsize=13, fontweight='bold')
+plt.tight_layout()
+plt.savefig('figures/fig18_h5_chain_sweep.png')
+```
+
+---
+
+## 图19：H5 — Rastrigin Iter Ratio 折线图
+
+**数据文件：**
+```
+results/gpu_rastrigin_60time_5runs/gpu_final_rastrigin.csv
+```
+
+**图表内容：**
+- 类型：折线图
+- X轴：Dims (10, 50, 100, 200, 500, 1000)，对数刻度
+- Y轴：Iter Ratio (GPU total iters / CPU iters)，对数刻度
+- 单条深蓝折线
+- 在每个点标注 Iter Ratio 数值
+- 添加说明："Higher ratio = GPU explores more solutions per second"
+- 标题：H5: GPU Throughput Advantage — Iter Ratio vs Dimensionality
+
+**示例代码：**
+```python
+df = pd.read_csv('results/gpu_rastrigin_60time_5runs/gpu_final_rastrigin.csv')
+
+fig, ax = plt.subplots(figsize=(8, 5))
+
+ax.plot(df['n_dims'], df['iter_ratio'], 'o-',
+        color='#1565C0', linewidth=2.5, markersize=9,
+        markerfacecolor='white', markeredgewidth=2.5)
+
+for _, row in df.iterrows():
+    ax.annotate(f"{row['iter_ratio']:.0f}x",
+                xy=(row['n_dims'], row['iter_ratio']),
+                xytext=(0, 10), textcoords='offset points',
+                ha='center', fontsize=10,
+                color='#1565C0', fontweight='bold')
+
+ax.set_xscale('log')
+ax.set_yscale('log')
+ax.set_xticks([10, 50, 100, 200, 500, 1000])
+ax.get_xaxis().set_major_formatter(ticker.ScalarFormatter())
+ax.set_xlabel('Number of Dimensions (log scale)')
+ax.set_ylabel('Iter Ratio = GPU Total Iters / CPU Iters (log scale)')
+ax.set_title('H5: GPU Throughput Advantage\n(Iter Ratio vs Dimensionality)',
+             fontsize=13, fontweight='bold')
+
+# 添加说明
+ax.text(0.05, 0.05,
+        'Higher ratio = GPU explores more\nsolutions per second',
+        transform=ax.transAxes, fontsize=10,
+        verticalalignment='bottom', color='gray',
+        bbox=dict(boxstyle='round', facecolor='wheat', alpha=0.4))
+
+plt.tight_layout()
+plt.savefig('figures/fig19_h5_iter_ratio.png')
+```
+
+---
+
+## GPU 图表输出目录补充
+
+```
+figures/
+├── ...（图1-14 同上）
+├── fig15_h5_rastrigin_gain.png        ← Rastrigin Quality Gain 折线图
+├── fig16_h5_tsp_gain.png              ← TSP Quality Gain 折线图（含 inflection point）
+├── fig17_h5_cost_comparison.png       ← 代表性规模 CPU vs GPU 柱状图
+├── fig18_h5_chain_sweep.png           ← N_CHAINS Sweep（多样性 vs 深度 tradeoff）
+└── fig19_h5_iter_ratio.png            ← GPU 吞吐量优势折线图
+```
+
+---
+
+## GPU 图表注意事项
+
+1. **图15 X轴用对数刻度**，因为 dims 从 10 到 1000 跨度大，对数刻度更清晰
+2. **图16 标注 inflection point**（3000-5000 城市），这是 TSP 数据的核心故事
+3. **图18 双Y轴**：左边 Gain(%)，右边 Iters/Chain，说明链数增加导致每条链步数减少
+4. **图19 双对数刻度**，Iter Ratio 从 142x 到 2114x 跨度大，用对数更直观
+5. **所有 GPU 图标题注明时间预算和链数**，便于读者理解实验设置
