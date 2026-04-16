@@ -1,9 +1,5 @@
 # AIPSA-GM: Adaptive Islanded Parallel Simulated Annealing with Guided Migration
 
-## Team
-
-Pengxiang Li, Weilun Qiu, Jinkuo Ha
-
 ## Overview
 
 AIPSA-GM is a parallel simulated annealing framework that combines adaptive temperature control, guided migration with quality+diversity utility, asynchronous buffered communication, and topology-aware island models.
