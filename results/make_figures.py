@@ -296,10 +296,10 @@ def plot_fig6():
     x_pos = list(summary["mode"]).index("Adaptive")
 
     plt.text(
-        x_pos,
+        x_pos + 0.15,
         adaptive_mean * 1.12,
         f"-{improve:.1f}% vs Fixed",
-        ha="center",
+        ha="left",  # 改成左对齐
         fontsize=10,
         color="#1565C0",
         fontweight="bold"
@@ -1018,69 +1018,58 @@ def plot_fig16():
 
 
 def plot_fig17():
-    import pandas as pd
-    import matplotlib.pyplot as plt
-    import matplotlib.ticker as ticker
-    import numpy as np
-
     df_ras = pd.read_csv("results/gpu_rastrigin_60time_5runs/gpu_final_rastrigin.csv")
     df_tsp = pd.read_csv("results/gpu_TSP_N_CHAINS_32_10runs/gpu_tsp_boltzmann.csv")
 
-    fig, axes = plt.subplots(1, 2, figsize=(12, 5))
+    fig, axes = plt.subplots(1, 2, figsize=(12, 6))
 
-    # --- Rastrigin ---
+    width = 0.35
+
+    # Rastrigin
     ax = axes[0]
     ras_dims = [10, 1000]
     x = np.arange(len(ras_dims))
-    width = 0.35
-
-    cpu_vals = [df_ras[df_ras["n_dims"] == d]["cpu_cost"].values[0] for d in ras_dims]
-    gpu_vals = [df_ras[df_ras["n_dims"] == d]["gpu_cost"].values[0] for d in ras_dims]
-    gains = [df_ras[df_ras["n_dims"] == d]["quality_gain_pct"].values[0] for d in ras_dims]
-
-    ax.bar(x - width/2, cpu_vals, width, label="CPU", color="#FFB74D")
-    ax.bar(x + width/2, gpu_vals, width, label="GPU", color="#1565C0")
-
+    cpu_vals = [df_ras[df_ras["n_dims"]==d]["cpu_cost"].values[0] for d in ras_dims]
+    gpu_vals = [df_ras[df_ras["n_dims"]==d]["gpu_cost"].values[0] for d in ras_dims]
+    gains = [df_ras[df_ras["n_dims"]==d]["quality_gain_pct"].values[0] for d in ras_dims]
+    b1 = ax.bar(x - width/2, cpu_vals, width, label="CPU", color="#FFB74D")
+    b2 = ax.bar(x + width/2, gpu_vals, width, label="GPU", color="#1565C0")
     for i, g in enumerate(gains):
-        ax.text(x[i], max(cpu_vals[i], gpu_vals[i]) * 1.03, f"+{g:.1f}%",
-                ha="center", color="#1565C0", fontsize=9, fontweight="bold")
-
+        ax.text(x[i], max(cpu_vals[i], gpu_vals[i]) * 1.05,
+                f"+{g:.1f}%", ha="center", color="#1565C0", fontsize=10, fontweight="bold")
     ax.set_xticks(x)
     ax.set_xticklabels([f"dims={d}" for d in ras_dims])
     ax.set_title("Rastrigin")
-    ax.set_ylabel("Mean Cost")
+    ax.set_ylabel("Mean Cost (log scale)")
+    ax.set_yscale("log")  # 对数轴解决小值看不见的问题
 
-    # --- TSP ---
+    # TSP
     ax = axes[1]
     tsp_sizes = [500, 10000]
     x = np.arange(len(tsp_sizes))
-
-    cpu_vals = [df_tsp[df_tsp["n_cities"] == d]["cpu_cost"].values[0] for d in tsp_sizes]
-    gpu_vals = [df_tsp[df_tsp["n_cities"] == d]["gpu_cost"].values[0] for d in tsp_sizes]
-    gains = [df_tsp[df_tsp["n_cities"] == d]["quality_gain_pct"].values[0] for d in tsp_sizes]
-
+    cpu_vals = [df_tsp[df_tsp["n_cities"]==d]["cpu_cost"].values[0] for d in tsp_sizes]
+    gpu_vals = [df_tsp[df_tsp["n_cities"]==d]["gpu_cost"].values[0] for d in tsp_sizes]
+    gains = [df_tsp[df_tsp["n_cities"]==d]["quality_gain_pct"].values[0] for d in tsp_sizes]
     ax.bar(x - width/2, cpu_vals, width, label="CPU", color="#FFB74D")
     ax.bar(x + width/2, gpu_vals, width, label="GPU", color="#1565C0")
-
     for i, g in enumerate(gains):
-        ax.text(x[i], max(cpu_vals[i], gpu_vals[i]) * 1.03, f"+{g:.1f}%",
-                ha="center", color="#1565C0", fontsize=9, fontweight="bold")
-
+        ax.text(x[i], max(cpu_vals[i], gpu_vals[i]) * 1.05,
+                f"+{g:.1f}%", ha="center", color="#1565C0", fontsize=10, fontweight="bold")
     ax.set_xticks(x)
     ax.set_xticklabels([f"{d:,}" for d in tsp_sizes])
     ax.set_title("TSP")
-    ax.yaxis.set_major_formatter(
-        ticker.FuncFormatter(lambda x, _: f"{int(x):,}")
-    )
+    ax.set_ylabel("Mean Cost (log scale)")
+    ax.set_yscale("log")
+    ax.yaxis.set_major_formatter(ticker.FuncFormatter(lambda x, _: f"{int(x):,}"))
 
-    fig.suptitle("H5: GPU vs CPU — Cost Comparison at Representative Scales")
+    fig.suptitle("H5: GPU vs CPU — Cost Comparison at Representative Scales", fontsize=14, fontweight="bold")
+    # 图例放到图下方，不挡标题
     handles, labels = axes[0].get_legend_handles_labels()
-    fig.legend(handles, labels, loc="upper center", ncol=2)
+    fig.legend(handles, labels, loc="lower center", ncol=2, bbox_to_anchor=(0.5, -0.02))
 
     plt.tight_layout()
-    plt.savefig("figures/fig17_h5_cost_comparison.png")
+    plt.savefig("figures/fig17_h5_cost_comparison.png", bbox_inches="tight")
     plt.close()
-
 
 def plot_fig18():
     import pandas as pd
@@ -1127,8 +1116,8 @@ def plot_fig18():
     ax1.axvline(x=32, color="red", linestyle=":", linewidth=1.5, alpha=0.8)
     ax1.annotate(
         "optimal\nN_CHAINS=32",
-        xy=(32, ax1.get_ylim()[1] * 0.85),
-        xytext=(70, ax1.get_ylim()[1] * 0.7),
+        xy=(32, 22),
+        xytext=(70, 18),
         color="red",
         fontsize=9,
         arrowprops=dict(arrowstyle="->", color="red")
