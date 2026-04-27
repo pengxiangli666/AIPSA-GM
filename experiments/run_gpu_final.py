@@ -1,9 +1,3 @@
-"""
-H5: GPU vs CPU — Final Time-Budget Experiment
-Both solvers get the same wall-clock time.
-GPU: CUDA kernel, 1024 chains, zero per-step sync
-CPU: serial SA, 1 chain
-"""
 
 import sys, os, csv, argparse
 import numpy as np

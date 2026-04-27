@@ -1,6 +1,4 @@
-"""
-H5: GPU vs CPU — TSP Boltzmann-weighted 2-opt Experiment
-"""
+
 
 import sys, os, csv, argparse
 import numpy as np

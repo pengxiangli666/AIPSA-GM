@@ -1,7 +1,3 @@
-"""
-Logging utility for SA experiments.
-Records: iteration, wall-clock time, current cost, best cost, acceptance rate.
-"""
 
 import time
 import csv

@@ -1,10 +1,3 @@
-"""
-Traveling Salesman Problem (TSP) benchmark.
-
-- Neighborhood: 2-opt swap
-- Distance between solutions: edge-based (number of edges not shared)
-- Cost: total tour length
-"""
 
 import random
 import math

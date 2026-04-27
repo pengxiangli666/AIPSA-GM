@@ -1,7 +1,3 @@
-"""
-GPU TSP SA — Boltzmann weighted 2-opt, fixed version
-Each chain initialized properly with Fisher-Yates on GPU.
-"""
 
 import math, time, random
 import numpy as np

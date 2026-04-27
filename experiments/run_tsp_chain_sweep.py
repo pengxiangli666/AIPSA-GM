@@ -1,9 +1,3 @@
-"""
-TSP Chain Count Sweep
-Find optimal N_CHAINS for GPU TSP SA.
-Tests different chain counts on a fixed problem to find the sweet spot
-between diversity (more chains) and convergence depth (fewer chains).
-"""
 
 import sys, os, csv
 import numpy as np

@@ -1,12 +1,3 @@
-"""
-Rastrigin Function benchmark.
-
-- Neighborhood: Gaussian perturbation
-- Distance between solutions: Euclidean distance
-- Cost: standard Rastrigin function (global minimum = 0 at origin)
-- Domain: [-5.12, 5.12]^n
-"""
-
 import random
 import math
 import numpy as np

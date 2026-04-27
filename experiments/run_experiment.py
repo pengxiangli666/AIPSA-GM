@@ -1,23 +1,3 @@
-"""
-Unified experiment runner for AIPSA-GM project.
-
-Runs all four solvers on the same problem with the same total computation budget,
-then prints a comparison table and saves results to CSV.
-
-Usage:
-    python -m experiments.run_experiment
-    python -m experiments.run_experiment --problem rastrigin
-    python -m experiments.run_experiment --cities 1000 --runs 5
-    python -m experiments.run_experiment --islands 8
-    python -m experiments.run_experiment --scale --cities 1000 --runs 3
-
-    # Experiment 2: Migration Policy comparison
-    python -m experiments.run_experiment --exp2 --cities 500 --runs 5
-    python -m experiments.run_experiment --migration guided --cities 500 --runs 5
-
-    # Custom output directory (for clean data collection)
-    python -m experiments.run_experiment --outdir results/2025-01-15
-"""
 
 import sys
 import os
@@ -36,9 +16,6 @@ from solvers.baseline_b import synchronous_islands
 from solvers.aipsa_gm import aipsa_gm
 
 
-# ─────────────────────────────────────────────
-# Shared experiment configuration
-# ─────────────────────────────────────────────
 
 N_ISLANDS   = 4       # default number of parallel islands
 TOTAL_ITERS = 500_000 # serial SA iteration budget
@@ -73,7 +50,7 @@ def run_once(problem, seed_base, n_islands, adaptive_heat=True,
 
     results = {}
 
-    # ── Serial SA ──────────────────────────────
+    #Serial SA
     print("  [1/4] Serial SA ...", end=' ', flush=True)
     t0 = time.time()
     _, cost, _ = serial_sa(
@@ -86,7 +63,7 @@ def run_once(problem, seed_base, n_islands, adaptive_heat=True,
     results['Serial SA'] = {'cost': cost, 'time': elapsed}
     print(f"cost={cost:.2f}  ({elapsed:.1f}s)")
 
-    # ── Baseline A: Independent Replicas ───────
+    #Baseline A: Independent Replicas
     print("  [2/4] Baseline A (Independent Replicas) ...", end=' ', flush=True)
     t0 = time.time()
     _, cost, _ = independent_replicas(
@@ -100,7 +77,7 @@ def run_once(problem, seed_base, n_islands, adaptive_heat=True,
     results['Baseline A'] = {'cost': cost, 'time': elapsed}
     print(f"cost={cost:.2f}  ({elapsed:.1f}s)")
 
-    # ── Baseline B: Synchronous Islands ────────
+    #Baseline B: Synchronous Islands
     print("  [3/4] Baseline B (Synchronous Islands) ...", end=' ', flush=True)
     t0 = time.time()
     _, cost, _ = synchronous_islands(
@@ -115,7 +92,7 @@ def run_once(problem, seed_base, n_islands, adaptive_heat=True,
     results['Baseline B'] = {'cost': cost, 'time': elapsed}
     print(f"cost={cost:.2f}  ({elapsed:.1f}s)")
 
-    # ── AIPSA-GM ───────────────────────────────
+    #AIPSA-GM
     label = f"AIPSA-GM ({migration_policy})"
     print(f"  [4/4] {label} ...", end=' ', flush=True)
     t0 = time.time()
@@ -608,7 +585,7 @@ def main():
                         choices=ALL_MIGRATION_POLICIES,
                         default='guided',
                         help='Migration policy for AIPSA-GM (default: guided)')
-    # ── NEW: custom output directory ──────────────────────────────────────────
+    #NEW: custom output directory
     parser.add_argument('--outdir', type=str, default=None,
                         help='Output directory for CSV results. '
                              'Defaults to "results". '
@@ -617,7 +594,7 @@ def main():
 
     n_islands = args.islands if args.islands else N_ISLANDS
 
-    # ── Resolve output directory ──────────────────────────────────────────────
+    #Resolve output directory
     output_dir = args.outdir if args.outdir else "results"
     os.makedirs(output_dir, exist_ok=True)
 
@@ -640,7 +617,7 @@ def main():
 
     print(f"Output directory: {output_dir}")
 
-    # ── Experiment 2: Migration Policy ────────
+    #Experiment 2: Migration Policy
     if args.exp2:
         print(f"Mode: Experiment 2 — Migration Policy Comparison")
         print(f"Policies: {ALL_MIGRATION_POLICIES}")
@@ -656,7 +633,7 @@ def main():
         )
         return
 
-    # ── Experiment 3: Adaptive Temperature ────
+    #Experiment 3: Adaptive Temperature
     if args.exp3:
         print(f"Mode: Experiment 3 — Fixed vs Adaptive Cooling")
         print(f"Runs: {args.runs}  |  N_islands: {n_islands}  |  Topology: {TOPOLOGY}\n")
@@ -670,7 +647,7 @@ def main():
         )
         return
 
-    # ── Experiment 4: Async vs Sync ───────────
+    #Experiment 4: Async vs Sync
     if args.exp4:
         print(f"Mode: Experiment 4 — Async vs Sync Migration")
         print(f"Runs: {args.runs}  |  N_islands: {n_islands}  |  Topology: {TOPOLOGY}\n")
@@ -685,7 +662,7 @@ def main():
         )
         return
 
-    # ── Experiment 5: Topology Comparison ─────
+    #Experiment 5: Topology Comparison
     if args.exp5:
         print(f"Mode: Experiment 5 — Topology Comparison (ring, full, random_k)")
         print(f"Runs: {args.runs}  |  N_islands: {n_islands}\n")
@@ -700,7 +677,7 @@ def main():
         )
         return
 
-    # ── Scalability mode ───────────────────────
+    #Scalability mode
     if args.scale:
         print(f"Mode: Scalability  (n_islands = 2, 4, 8, 16)")
         print(f"Runs per config: {args.runs}  |  Topology: {TOPOLOGY}\n")
@@ -715,7 +692,7 @@ def main():
         )
         return
 
-    # ── Normal mode ────────────────────────────
+    # Normal mode
     print(f"Total iters: {TOTAL_ITERS:,} (serial) / {PER_ISLAND:,} per island")
     print(f"Runs: {args.runs}  |  N_islands: {n_islands}  |  Topology: {TOPOLOGY}")
     print(f"Migration policy: {args.migration}")

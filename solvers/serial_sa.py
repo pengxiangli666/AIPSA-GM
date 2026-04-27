@@ -1,13 +1,3 @@
-"""
-Serial Simulated Annealing baseline.
-
-Parameters:
-    T0       : initial temperature
-    alpha    : cooling rate (T <- alpha * T)
-    L        : inner loop length (steps per temperature)
-    T_min    : stopping temperature
-    max_iter : max total iterations (alternative stopping criterion)
-"""
 
 import math
 import random

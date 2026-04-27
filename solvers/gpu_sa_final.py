@@ -1,16 +1,3 @@
-"""
-GPU-Accelerated SA — Final Version
-====================================
-Fair comparison: CPU and GPU each get the same wall-clock time budget.
-GPU uses full CUDA kernel (zero per-step CPU<->GPU sync).
-Temperature decays based on iteration progress (same curve for both).
-
-Strategy:
-  1. Warmup: run GPU kernel for 1000 iters to measure per-iter time
-  2. Calculate gpu_max_iter = time_budget / time_per_iter
-  3. Run GPU kernel with gpu_max_iter
-  4. Run CPU SA for same time_budget seconds
-"""
 
 import math
 import time

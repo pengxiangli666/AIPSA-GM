@@ -1,8 +1,3 @@
-"""
-Baseline B: Static Synchronous Islands
-Islands run for M steps, then synchronize via a global barrier and exchange solutions.
-Best solutions are migrated to other islands after each sync round.
-"""
 
 import multiprocessing as mp
 import math
@@ -57,7 +52,7 @@ def _island_worker(args):
 
             T *= alpha
 
-        # --- Synchronization point ---
+        # Synchronization point
         # Push our best solution to shared pool
         with lock:
             shared_pool.append((best_cost, best[:]))
@@ -105,11 +100,11 @@ def synchronous_islands(problem, n_islands=4, T0=1000.0, alpha=0.99,
 
     # Shared state for migration
     # FIX: use manager.Barrier() instead of mp.Barrier() so it can be
-    #      passed through mp.Pool (which requires pickling all arguments).
+    # passed through mp.Pool (which requires pickling all arguments).
     manager = mp.Manager()
     shared_pool = manager.list()
     lock = manager.Lock()
-    barrier = manager.Barrier(n_islands)  # <-- was mp.Barrier(n_islands)
+    barrier = manager.Barrier(n_islands)  # was mp.Barrier(n_islands)
 
     args_list = []
     for i in range(n_islands):

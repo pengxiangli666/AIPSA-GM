@@ -1,8 +1,3 @@
-"""
-Baseline A: Independent Replicas
-Multiple SA processes run in parallel with NO communication.
-Each island starts from a random solution and runs independently.
-"""
 
 import multiprocessing as mp
 import random

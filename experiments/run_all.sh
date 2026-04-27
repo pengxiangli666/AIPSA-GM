@@ -1,42 +1,38 @@
 #!/bin/bash
-# ============================================================
-# run_all.sh — AIPSA-GM 全实验一键重跑脚本
-#
-# 用法:
-#   bash run_all.sh              # 正式版: TSP 1000 + Rastrigin 10, 5 runs
-#   bash run_all.sh --dry-run    # 只打印命令，不实际执行
-#
-# 输出目录: results/YYYY-MM-DD_HHMMSS/
-# 旧 results/ 下的 CSV 不会被删除或覆盖
-# ============================================================
 
-set -e  # 任何命令失败立即退出
+set -e
 
-# ── 配置区（按需修改）────────────────────────────────────────
 CITIES=1000
 DIMS=10
-RUNS=5
+RUNS=10
 ISLANDS=4
 SEED=42
-SCALE_ISLANDS="--scale"        # 去掉这行如果不想跑 scalability
-# ─────────────────────────────────────────────────────────────
+
+# GPU configuration
+GPU_TIME=60
+GPU_RUNS_RASTRIGIN=5
+GPU_RUNS_TSP=10
+GPU_CHAINS=32
 
 DRY_RUN=false
-if [[ "$1" == "--dry-run" ]]; then
-    DRY_RUN=true
-    echo "[dry-run mode] 只打印命令，不执行"
-fi
+SKIP_GPU=false
+for arg in "$@"; do
+    [[ "$arg" == "--dry-run"  ]] && DRY_RUN=true
+    [[ "$arg" == "--skip-gpu" ]] && SKIP_GPU=true
+done
 
-# 生成带时间戳的输出目录
+$DRY_RUN  && echo "[dry-run mode] printing commands only, not executing"
+$SKIP_GPU && echo "[skip-gpu mode] skipping Exp 6 GPU experiments"
+
 TIMESTAMP=$(date +"%Y-%m-%d_%H%M%S")
 OUTDIR="results/${TIMESTAMP}"
 
 echo ""
 echo "============================================================"
-echo "  AIPSA-GM 全实验重跑"
-echo "  输出目录: ${OUTDIR}"
-echo "  配置: TSP ${CITIES} cities | Rastrigin ${DIMS} dims"
-echo "        runs=${RUNS} | islands=${ISLANDS} | seed=${SEED}"
+echo "  AIPSA-GM Full Experiment Run (Exp 1-6)"
+echo "  Output directory: ${OUTDIR}"
+echo "  Config: TSP ${CITIES} cities | Rastrigin ${DIMS} dims"
+echo "          runs=${RUNS} | islands=${ISLANDS} | seed=${SEED}"
 echo "============================================================"
 echo ""
 
@@ -48,70 +44,102 @@ run_cmd() {
     fi
 }
 
-# 先把旧数据 archive（只在非 dry-run 且旧数据存在时执行）
+# Archive old CSV files if present
 if [ "$DRY_RUN" = false ] && ls results/*.csv 2>/dev/null | grep -q .; then
-    echo "── 归档旧 CSV 到 results/archive/ ──"
+    echo "-- Archiving existing CSVs to results/archive/ --"
     mkdir -p results/archive
     mv results/*.csv results/archive/
-    echo "   已移动 $(ls results/archive/*.csv 2>/dev/null | wc -l) 个文件到 results/archive/"
 fi
 
 mkdir -p "${OUTDIR}"
 
-BASE_TSP="python -m experiments.run_experiment --problem tsp   --cities ${CITIES} --runs ${RUNS} --seed ${SEED} --islands ${ISLANDS} --outdir ${OUTDIR}"
-BASE_RAS="python -m experiments.run_experiment --problem rastrigin --dims ${DIMS}  --runs ${RUNS} --seed ${SEED} --islands ${ISLANDS} --outdir ${OUTDIR}"
+BASE_TSP="python -m experiments.run_experiment --problem tsp      --cities ${CITIES} --runs ${RUNS} --seed ${SEED} --islands ${ISLANDS} --outdir ${OUTDIR}"
+BASE_RAS="python -m experiments.run_experiment --problem rastrigin --dims   ${DIMS}   --runs ${RUNS} --seed ${SEED} --islands ${ISLANDS} --outdir ${OUTDIR}"
+
 
 echo ""
-echo "════════════════════════════════════════════════════════════"
-echo "  Exp 1: Solver Comparison (Serial / Baseline A / B / AIPSA-GM)"
-echo "════════════════════════════════════════════════════════════"
+echo "==== Exp 1: Solver Comparison (Serial / Baseline A / B / AIPSA-GM) ===="
+# Default topology: full
 run_cmd "${BASE_TSP}"
 run_cmd "${BASE_RAS}"
 
 echo ""
-echo "════════════════════════════════════════════════════════════"
-echo "  Exp 2: Migration Policy (random / best_only / quality_only / guided)"
-echo "════════════════════════════════════════════════════════════"
-run_cmd "${BASE_TSP} --exp2"
+echo "==== Exp 2: Migration Policy (random / best_only / quality_only / guided) ===="
+# TSP: full topology (default)
+run_cmd "${BASE_TSP} --exp2 --cities 2000"
+# Rastrigin 10d: requires TOPOLOGY='ring' in run_experiment.py
+echo ">>> [NOTE] Set TOPOLOGY='ring' in run_experiment.py before running Rastrigin Exp2"
 run_cmd "${BASE_RAS} --exp2"
+# Rastrigin 30d: ring topology
+run_cmd "${BASE_RAS} --exp2 --dims 30"
 
 echo ""
-echo "════════════════════════════════════════════════════════════"
-echo "  Exp 3: Adaptive Temperature (fixed vs adaptive cooling)"
-echo "════════════════════════════════════════════════════════════"
-run_cmd "${BASE_TSP} --exp3"
+echo "==== Exp 3: Adaptive Temperature (fixed vs adaptive cooling) ===="
+# Rastrigin: requires TOPOLOGY='full' in run_experiment.py
+echo ">>> [NOTE] Set TOPOLOGY='full' in run_experiment.py before running Rastrigin Exp3"
 run_cmd "${BASE_RAS} --exp3"
+# TSP: full topology (default)
+run_cmd "${BASE_TSP} --exp3"
+
 
 echo ""
-echo "════════════════════════════════════════════════════════════"
-echo "  Exp 4: Async vs Sync Migration"
-echo "════════════════════════════════════════════════════════════"
+echo "==== Exp 4: Async vs Sync Migration ===="
 run_cmd "${BASE_TSP} --exp4"
 run_cmd "${BASE_RAS} --exp4"
 
+
 echo ""
-echo "════════════════════════════════════════════════════════════"
-echo "  Exp 5: Topology (ring / full / random_k)"
-echo "════════════════════════════════════════════════════════════"
+echo "==== Exp 5: Topology Comparison (ring / full / random_k) ===="
 run_cmd "${BASE_TSP} --exp5"
 run_cmd "${BASE_RAS} --exp5"
 
 echo ""
-echo "════════════════════════════════════════════════════════════"
-echo "  Exp 5 (Scalability): n_islands = 2, 4, 8, 16"
-echo "════════════════════════════════════════════════════════════"
-run_cmd "python -m experiments.run_experiment --problem tsp      --cities ${CITIES} --runs ${RUNS} --seed ${SEED} --outdir ${OUTDIR} ${SCALE_ISLANDS}"
-run_cmd "python -m experiments.run_experiment --problem rastrigin --dims ${DIMS}   --runs ${RUNS} --seed ${SEED} --outdir ${OUTDIR} ${SCALE_ISLANDS}"
+echo "==== Exp 5: Scalability (n_islands = 2, 4, 8, 16) ===="
+# TSP scalability: full topology (default)
+run_cmd "python -m experiments.run_experiment --problem tsp      --cities ${CITIES} --runs ${RUNS} --seed ${SEED} --outdir ${OUTDIR}/exp5_scale_tsp     --scale"
+# Rastrigin scalability: ring topology
+echo ">>> [NOTE] Set TOPOLOGY='ring' in run_experiment.py before running Rastrigin scalability (ring)"
+run_cmd "python -m experiments.run_experiment --problem rastrigin --dims ${DIMS}    --runs ${RUNS} --seed ${SEED} --outdir ${OUTDIR}/exp5_scale_ring    --scale"
+# Rastrigin scalability: full topology
+echo ">>> [NOTE] Set TOPOLOGY='full' in run_experiment.py before running Rastrigin scalability (full)"
+run_cmd "python -m experiments.run_experiment --problem rastrigin --dims ${DIMS}    --runs ${RUNS} --seed ${SEED} --outdir ${OUTDIR}/exp5_scale_full    --scale"
+# Rastrigin scalability: random_k topology
+echo ">>> [NOTE] Set TOPOLOGY='random_k' in run_experiment.py before running Rastrigin scalability (random_k)"
+run_cmd "python -m experiments.run_experiment --problem rastrigin --dims ${DIMS}    --runs ${RUNS} --seed ${SEED} --outdir ${OUTDIR}/exp5_scale_randomk --scale"
+
+
+if [ "$SKIP_GPU" = false ]; then
+    echo ""
+    echo "==== Exp 6: GPU Parallelism ===="
+
+    # Set CUDA environment
+    export CUDA_PATH=/usr/local/cuda-12.6
+    export PATH=$CUDA_PATH/bin:$PATH
+    export LD_LIBRARY_PATH=$CUDA_PATH/lib64:$LD_LIBRARY_PATH
+
+    # Rastrigin GPU: 60s budget, 5 runs
+    run_cmd "python3 -m experiments.run_gpu_final --time ${GPU_TIME} --runs ${GPU_RUNS_RASTRIGIN} --outdir ${OUTDIR}/gpu_rastrigin"
+
+    # TSP GPU: 60s budget, 10 runs, N_CHAINS=32
+    run_cmd "python3 -m experiments.run_gpu_tsp --time ${GPU_TIME} --runs ${GPU_RUNS_TSP} --outdir ${OUTDIR}/gpu_tsp"
+
+    # N_CHAINS sweep to find optimal chain count
+    run_cmd "python3 run_tsp_chain_sweep.py"
+else
+    echo ""
+    echo "==== Exp 6: GPU experiments skipped ===="
+fi
+
 
 echo ""
-echo "════════════════════════════════════════════════════════════"
+echo "============================================================"
 if [ "$DRY_RUN" = false ]; then
-    echo "  全部完成！结果保存在: ${OUTDIR}/"
+    echo "  All experiments complete. Results saved to: ${OUTDIR}/"
     echo ""
-    echo "  生成的 CSV 文件:"
-    ls "${OUTDIR}"/*.csv 2>/dev/null | sed 's/^/    /' || echo "    (无文件)"
+    echo "  Output files:"
+    find "${OUTDIR}" -name "*.csv" 2>/dev/null | sed 's/^/    /' || echo "    (no files found)"
 else
-    echo "  [dry-run] 以上为完整命令预览，未实际执行"
+    echo "  [dry-run] Command preview complete, nothing was executed."
 fi
-echo "════════════════════════════════════════════════════════════"
+echo "============================================================"
 echo ""

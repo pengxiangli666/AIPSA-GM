@@ -1,23 +1,4 @@
-"""
-Baseline C: AIPSA-GM
-Adaptive Islanded Parallel Simulated Annealing with Guided Migration
 
-Features:
-  - Adaptive temperature control based on acceptance rate
-  - Quality-first guided migration: U = q * (1 + beta * d)
-  - Normalized diversity relative to incoming pool
-  - Asynchronous buffered migration (non-blocking queue, no global barrier)
-  - Topology-aware communication: 'ring', 'full', 'random_k'
-  - Migration policy: 'guided', 'quality_only', 'best_only', 'random'
-
-Key design choices:
-  - Utility is quality-first (multiplicative), diversity is a tie-breaker
-  - Diversity normalized per-round against incoming pool, not search space
-  - quality_only does NOT use diversity injection (clean control variable)
-  - Only guided uses diversity injection, with conservative thresholds
-  - Auto-calibrated alpha_cool ensures full iteration budget is used
-  - Phase-aware adaptive heating (first 60%, decaying factor, capped)
-"""
 
 import multiprocessing as mp
 import math
@@ -190,11 +171,6 @@ def _process_incoming(my_queue, best, best_cost, current, current_cost,
         migrated = True
         return best, best_cost, current, current_cost, migrated
 
-    # Note: guided policy differs from best_only only in SELECTION logic
-    # (quality-first utility with diversity tie-breaking in _select_migrant).
-    # No diversity injection is applied here — injection was found to hurt
-    # performance on combinatorial problems (TSP) by disrupting convergence,
-    # and the selection-level diversity already provides sufficient benefit.
 
     return best, best_cost, current, current_cost, migrated
 
@@ -276,7 +252,7 @@ def _island_worker(args):
             window_moves += 1
             iteration += 1
 
-            # ── Adaptive temperature adjustment ──
+            # Adaptive temperature adjustment
             if window_moves >= window_size:
                 progress = iteration / effective_max_iter
                 r = window_accepted / window_moves
@@ -290,7 +266,7 @@ def _island_worker(args):
                 window_accepted = 0
                 window_moves = 0
 
-            # ── Async outgoing migration ──
+            # Async outgoing migration 
             if iteration % migration_interval == 0:
                 neighbor_ids = _get_neighbors_topology(
                     island_id, n_islands, topology, k_neighbors)
@@ -309,7 +285,7 @@ def _island_worker(args):
                     progress
                 )
 
-        # ── Also check incoming at cooling step boundary ──
+        #  Also check incoming at cooling step boundary
         progress = iteration / effective_max_iter
         best, best_cost, current, current_cost, _ = _process_incoming(
             my_queue, best, best_cost, current, current_cost,
@@ -341,22 +317,7 @@ def aipsa_gm(problem, n_islands=4, T0=1000.0, alpha_cool=0.99, L=100,
              adaptive_heat=True,
              migration_policy='guided',
              seeds=None, log_dir=None):
-    """
-    Run AIPSA-GM with async guided migration.
 
-    Args:
-        topology: 'ring', 'full', or 'random_k'
-        r_low, r_high: acceptance rate thresholds for adaptive temperature
-        migration_interval: steps between migration attempts
-        alpha_w, beta_w: weights for quality vs diversity in utility function
-            Default 0.8/0.2 makes quality primary, diversity a bonus.
-        adaptive_heat: if True, allow temperature to increase when acceptance
-            rate is too low. Phase-aware: only in first 60%, decaying factor.
-        migration_policy: 'guided', 'quality_only', 'best_only', 'random'
-
-    Returns:
-        best_solution, best_cost, all_records
-    """
     if seeds is None:
         seeds = [random.randint(0, 10000) for _ in range(n_islands)]
 
