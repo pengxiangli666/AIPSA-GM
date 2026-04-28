@@ -1,8 +1,3 @@
-"""
-Base class for all optimization problems.
-Defines the unified problem interface used across all SA variants.
-"""
-
 from abc import ABC, abstractmethod
 
 
