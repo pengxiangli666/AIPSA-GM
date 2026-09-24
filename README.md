@@ -1,20 +1,34 @@
 # AIPSA-GM: Adaptive Islanded Parallel Simulated Annealing with Guided Migration
 
+A parallel simulated annealing (SA) framework that combines adaptive temperature control, guided migration with a quality + diversity utility, asynchronous buffered communication, and topology-aware island models, plus a CUDA/CuPy GPU multi-chain solver.
+
+## TL;DR
+
+- **Island-model SA (CPU):** On TSP (1,000 cities, 4 islands), AIPSA-GM reduces mean tour cost by **37.4%** vs. serial SA and **13.0%** vs. synchronous islands. On Rastrigin (10-D) the reduction is **79.7%** vs. serial SA.
+- **GPU multi-chain SA (RTX 4090):** Under an equal 60 s wall-clock budget, the GPU solver reaches up to **67.4% lower cost** on Rastrigin (10-D) and **17.6% lower cost** on TSP (10,000 cities) than a single-chain CPU SA. On Rastrigin 10-D it executes **2,114× more aggregate iterations** (summed over 1,024 parallel chains) in the same time.
+- **Design insight:** Benefits are problem-dependent. Adaptive reheating helps multimodal continuous problems (Rastrigin: −47% mean cost) but hurts TSP; full topology is best for TSP while ring is best for Rastrigin; GPU gain shrinks with dimensionality on Rastrigin but grows with city count on TSP.
+
 ## Overview
 
-AIPSA-GM is a parallel simulated annealing framework that combines adaptive temperature control, guided migration with quality+diversity utility, asynchronous buffered communication, and topology-aware island models.
+We evaluate AIPSA-GM against three baselines on two benchmarks (TSP and Rastrigin), testing five hypotheses about parallelism, migration strategy, adaptive temperature, synchronization / communication topology, and GPU acceleration.
 
-We evaluate AIPSA-GM against three baselines on two benchmarks (TSP and Rastrigin), testing five hypotheses about parallelism, migration strategy, adaptive temperature, synchronization, and communication topology.
+## Contributions
+
+**Pengxiang (Alex) Li** ([@pengxiangli666](https://github.com/pengxiangli666)) designed and implemented the entire codebase: the AIPSA-GM algorithm (guided migration, adaptive heating, async buffered communication), the baseline solvers, the TSP and Rastrigin benchmarks, the experiment runner, and the CUDA/CuPy GPU kernels, including the chain-count sweep and GPU experiment design.
+
+Teammates helped collect experimental data and wrote the course project report.
 
 ---
 
 ## Project Structure
 
 ```
-451-PROJECT/
+AIPSA-GM/
 ├── experiments/
 │   ├── __init__.py
-│   └── run_experiment.py      # Unified experiment runner (Exp 1–5)
+│   ├── run_experiment.py      # Unified experiment runner (Exp 1–5)
+│   ├── run_gpu_final.py       # Rastrigin GPU experiment runner (Exp 6)
+│   └── run_gpu_tsp.py         # TSP GPU experiment runner (Exp 6)
 ├── problems/
 │   ├── __init__.py
 │   ├── base.py                # Unified Problem interface
@@ -25,11 +39,14 @@ We evaluate AIPSA-GM against three baselines on two benchmarks (TSP and Rastrigi
 │   ├── serial_sa.py           # Serial SA baseline
 │   ├── baseline_a.py          # Baseline A: Independent Replicas
 │   ├── baseline_b.py          # Baseline B: Synchronous Islands
-│   └── aipsa_gm.py            # AIPSA-GM (Baseline C)
+│   ├── aipsa_gm.py            # AIPSA-GM (Baseline C)
+│   ├── gpu_sa_final.py        # Rastrigin CUDA kernel (multi-chain SA)
+│   └── gpu_tsp_kernel.py      # TSP CUDA kernel (parallel 2-opt SA chains)
 ├── utils/
 │   ├── __init__.py
 │   └── logger.py              # SA logging utility
 ├── results/                   # CSV outputs from experiments
+├── run_tsp_chain_sweep.py     # N_CHAINS optimization sweep (GPU)
 ├── README.md
 └── requirements.txt
 ```
@@ -43,6 +60,8 @@ We evaluate AIPSA-GM against three baselines on two benchmarks (TSP and Rastrigi
 ```bash
 pip install numpy tqdm
 ```
+
+(GPU experiments additionally need CuPy and CUDA. See [GPU Requirements](#gpu-requirements).)
 
 ### Run All Experiments
 
@@ -166,7 +185,9 @@ Options:
 **Key findings:**
 - **TSP:** AIPSA-GM achieves 37.4% improvement over Serial SA and 13.0% over Baseline B. Std Dev is the lowest among all solvers, demonstrating superior stability.
 - **Rastrigin:** AIPSA-GM achieves 79.7% improvement over Serial SA and 23.5% over Baseline B. Std Dev (0.97) is far lower than all other solvers.
-- Baseline A barely improves over Serial SA on TSP, proving that **migration — not just parallelism — is the key driver of improvement**.
+- Baseline A barely improves over Serial SA on TSP, indicating that **migration, not just parallelism, is the key driver of improvement**.
+
+<!-- TODO: Baseline B on Rastrigin is 5.6278 here but 8.8867 in Exp 4. If the configuration differs (e.g. iteration budget or cooling), add a one-line note under the Exp 4 table; if not, re-check the data. -->
 
 ---
 
@@ -200,9 +221,9 @@ Options:
 | **guided** | **66.70** | **52.86** | **8.29** | **9.02s** ◀ |
 
 **Key findings:**
-- **TSP 2000 cities:** guided and quality_only are statistically indistinguishable (<0.5% gap), confirming that diversity provides limited benefit for combinatorial optimization where solution space diversity is structurally constrained.
+- **TSP 2000 cities:** guided and quality_only are close (<0.5% gap in mean cost), suggesting that diversity provides limited benefit for combinatorial optimization where solution-space diversity is structurally constrained.
 - **Rastrigin 10dims:** All policies perform comparably. Low dimensionality means fewer local optima, making diversity-aware selection unnecessary.
-- **Rastrigin 30dims:** guided dominates with 66.70 Mean Cost, beating random by 11.2% and best_only by 4.8%. Higher dimensionality creates more local optima where diversity tie-breaking is highly valuable.
+- **Rastrigin 30dims:** guided achieves the lowest mean cost (66.70), beating random by 11.2% and best_only by 4.8%. Higher dimensionality creates more local optima where diversity tie-breaking is valuable.
 - Ring topology is used for Rastrigin Exp 2 to preserve inter-island diversity, consistent with Exp 5 findings. Using full topology suppresses diversity effects and conflates topology choice with migration policy effects.
 
 ---
@@ -224,9 +245,9 @@ Options:
 | Adaptive cooling | 36,833 | 36,075 | 629 | 27.0s |
 
 **Key findings:**
-- **Rastrigin:** Adaptive cooling cuts Mean Cost by 47.2% (8.89 → 4.69) and reduces Std Dev by 58.6% (2.16 → 0.89), demonstrating significantly improved robustness across random seeds.
+- **Rastrigin:** Adaptive cooling cuts Mean Cost by 47.2% (8.89 → 4.69) and reduces Std Dev by 58.6% (2.16 → 0.89), improving robustness across random seeds.
 - **TSP:** Fixed cooling outperforms adaptive by 20.0% (29,463 vs 36,833), winning all 10/10 runs. Reheating disrupts the monotone convergence that combinatorial optimization requires.
-- **Conclusion:** Adaptive temperature is highly effective for multimodal continuous problems but detrimental for combinatorial optimization. This motivates the per-problem `adaptive_heat` switch in AIPSA-GM.
+- **Conclusion:** Adaptive temperature is effective for multimodal continuous problems but detrimental for combinatorial optimization. This motivates the per-problem `adaptive_heat` switch in AIPSA-GM.
 
 ---
 
@@ -237,14 +258,14 @@ Options:
 | Solver | Mean Cost | Best Cost | Std Dev | Avg Time | Speedup |
 |--------|-----------|-----------|---------|----------|---------|
 | Baseline B (sync) | 33,728 | 32,915 | 417 | 23.3s | 1.00x |
-| **AIPSA-GM (async)** | **29,326** | **28,987** | **213** | **22.0s** | **1.06x** ◀ |
+| **AIPSA-GM (async)** | **29,326** | **28,987** | **213** | **22.0s** | **1.06x** |
 
 **Rastrigin 10dims | 4 islands | Full topology | 10 runs**
 
 | Solver | Mean Cost | Best Cost | Std Dev | Avg Time | Speedup |
 |--------|-----------|-----------|---------|----------|---------|
 | Baseline B (sync) | 8.8867 | 5.3346 | 2.38 | 3.36s | 1.00x |
-| **AIPSA-GM (async)** | **4.9239** | **2.6002** | **1.46** | **4.82s** | **0.70x** ◀ |
+| **AIPSA-GM (async)** | **4.9239** | **2.6002** | **1.46** | **4.82s** | 0.70x |
 
 *Async advantage grows with island count (TSP scalability data):*
 
@@ -256,10 +277,10 @@ Options:
 | 16        | 31,181             | 26,063            | 16.4%       |
 
 **Key findings:**
-- AIPSA-GM wins **10/10 runs** on both benchmarks — no exceptions.
-- On TSP, async is both faster (1.06x) and better quality (12.9%), as eliminating barriers reduces idle time with no tradeoff.
-- On Rastrigin, async is slower (0.70x) due to auto-calibrated cooling running full iterations, but delivers 44.6% quality improvement — a worthwhile tradeoff.
-- The async advantage grows with island count (4.5% → 16.7%), confirming that synchronous barriers cause increasing idle time at higher parallelism.
+- AIPSA-GM wins **10/10 runs** on both benchmarks in solution quality.
+- **TSP:** async is both faster (1.06x) and better in quality (12.9%), since eliminating barriers reduces idle time with no tradeoff.
+- **Rastrigin:** async is slower (0.70x) because auto-calibrated cooling runs the full iteration budget, but it delivers a 44.6% quality improvement, a worthwhile tradeoff.
+- The async quality advantage grows with island count on TSP (4.5% → 16.7%), consistent with synchronous barriers causing increasing idle time at higher parallelism.
 
 ---
 
@@ -300,13 +321,14 @@ Options:
 | 16 | 46,882 | 45,963 | 31,181 | **26,063** | 75.4s |
 
 **Key findings:**
-- **Topology is problem-dependent:** Full topology is optimal for TSP (10/10 wins, 2.3% better than ring), while ring is optimal for Rastrigin (preserves inter-island diversity for multimodal search).
-- **Full topology causes O(n²) communication overhead:** Time explodes at 16 islands for both TSP (75s vs 23s at 4 islands) and Rastrigin (35s vs 4.9s). Ring and random_k scale linearly.
-- **Ring is the most balanced choice for scalability:** Stable quality across all island counts, linear time growth, no communication explosion.
-- **Random_k is unstable:** Loses to Baseline B at 16 islands on Rastrigin (3.63 vs 3.56), as random neighbor selection occasionally misses high-quality candidates.
-- **AIPSA-GM vs Serial SA improvement grows with island count:** 28% → 37% → 42% → 44% on TSP, confirming scalability benefit of guided parallel SA.
+- **Topology is problem-dependent:** Full topology is best for TSP (10/10 wins, 2.3% better than ring), while ring is best for Rastrigin at 4 islands (preserves inter-island diversity for multimodal search).
+- **Full topology has O(n²) communication overhead:** Time grows sharply at 16 islands for both TSP (75s vs 23s at 4 islands) and Rastrigin (35s vs 4.9s). Ring and random_k scale roughly linearly.
+- **Ring is the most balanced choice for scalability:** Stable quality across island counts, roughly linear time growth, no communication blow-up.
+- **Random_k is less stable:** at 16 islands on Rastrigin it reaches 3.63, worse than ring (3.14) and full (2.46).
+- **Improvement over Serial SA grows with island count on TSP:** 28% → 37% → 42% → 44%.
 
----
+<!-- TODO: The original text said random_k "loses to Baseline B at 16 islands (3.63 vs 3.56)", but Baseline B's Rastrigin scalability numbers are not in any table. Add them or drop that comparison. -->
+
 ---
 
 ### Experiment 6 (H5): GPU Parallelism Tradeoffs
@@ -319,7 +341,7 @@ Options:
 
 We extend AIPSA-GM with a GPU-accelerated SA solver implemented in CUDA C via CuPy's `RawModule` interface. The implementation consists of two benchmark-specific kernels:
 
-**Rastrigin GPU Kernel — Multi-Chain Parallel SA**
+**Rastrigin GPU Kernel: Multi-Chain Parallel SA**
 
 The entire SA main loop runs inside a single CUDA kernel with zero per-step CPU↔GPU communication:
 
@@ -333,30 +355,30 @@ Key design choices:
 - LCG (Linear Congruential Generator) for on-device random number generation (no curand dependency)
 - Auto-calibrated cooling: `alpha = (T_min/T0)^(1/max_iter)` computed inside kernel
 - Per-thread local arrays store current and best solutions in register/local memory
-- Warmup-based time calibration: measures GPU speed first, then sets `max_iter` to match time budget
+- Warmup-based time calibration: measures GPU speed first, then sets `max_iter` to match the time budget
 
-**TSP GPU Kernel — Boltzmann-Weighted 2-opt**
-
-A novel approach extending the Metropolis criterion to parallel neighborhood search:
+**TSP GPU Kernel: Parallel 2-opt SA Chains**
 
 ```
 Each CUDA thread = one independent TSP SA chain
-Each chain uses standard random 2-opt with Boltzmann acceptance
-32 chains run in parallel (optimal for RTX 4090 memory bandwidth)
+Each chain uses standard random 2-opt with Boltzmann (Metropolis) acceptance
+32 chains run in parallel (best on RTX 4090 per the N_CHAINS sweep)
 ```
 
-Unlike greedy best-2opt (which changes SA semantics to Hill Climbing), we preserve full SA stochastic acceptance:
+Unlike a greedy best-2-opt step (which turns SA into hill climbing), each chain preserves full SA stochastic acceptance:
 - Each step selects a random 2-opt swap
-- Acceptance follows `P(accept) = exp(-delta/T)` — identical to standard SA
-- Multiple chains provide diversity without sacrificing convergence depth
+- Acceptance follows `P(accept) = exp(-delta/T)`, identical to standard SA
+- Multiple chains provide diversity without changing the per-chain SA semantics
 
-This is theoretically grounded in Metropolis et al. (1953) and extended to exploit GPU parallelism.
+The acceptance rule follows Metropolis et al. (1953).
 
 ---
 
 #### Experimental Setup
 
-**Fair comparison protocol:** Both CPU and GPU receive the same wall-clock time budget (60 seconds). GPU speed is measured via a warmup run, and `max_iter` is set to fully utilize the time budget.
+**Fair comparison protocol:** CPU and GPU receive the same wall-clock time budget (60 seconds). GPU speed is measured via a warmup run, and `max_iter` is set to fully utilize the time budget. The CPU baseline is a single-chain serial SA (`solvers/serial_sa.py`).
+
+<!-- TODO: State the CPU baseline's implementation language / threading (e.g. single-threaded Python + NumPy) so readers can interpret the CPU vs. GPU comparison. -->
 
 | Parameter | Rastrigin | TSP |
 |-----------|-----------|-----|
@@ -366,16 +388,18 @@ This is theoretically grounded in Metropolis et al. (1953) and extended to explo
 | Platform | RTX 4090 (WSL2, CUDA 12.6) | RTX 4090 (WSL2, CUDA 12.6) |
 
 **Why N_CHAINS differs:**
-- Rastrigin: cost function is lightweight (vector ops), 1024 chains each get ~20M iters
-- TSP: requires dist_matrix access per step (memory-bound), 1024 chains cause bandwidth saturation; N_CHAINS=32 found optimal via sweep across [32, 64, 128, 256, 512, 1024, 2048]
+- Rastrigin: the cost function is lightweight (vector ops); 1024 chains each get ~20M iterations
+- TSP: each step reads the distance matrix (memory-bound); 1024 chains saturate bandwidth. N_CHAINS=32 was found best via a sweep over [32, 64, 128, 256, 512, 1024, 2048]
 
 ---
 
 #### Results
 
-**Rastrigin — GPU vs CPU (60s time budget, 5 runs)**
+**Rastrigin: GPU vs CPU (60s time budget, 5 runs)**
 
-| Dims | CPU Cost | GPU Cost | Quality Gain | CPU Iters | GPU Iters | Iter Ratio |
+*GPU Iters are aggregate iterations summed over all 1,024 chains; CPU runs a single chain. Iter Ratio therefore measures aggregate throughput, not the speedup of a single SA chain.*
+
+| Dims | CPU Cost | GPU Cost | Quality Gain | CPU Iters | GPU Iters (aggregate) | Iter Ratio |
 |------|----------|----------|-------------|-----------|-----------|-----------|
 | 10   | 4.2624   | 1.3877   | **67.4%**   | 10,361,068 | 21,904,954,163 | 2114x |
 | 50   | 229.2561 | 103.7956 | **54.7%**   | 8,937,155  | 6,260,950,425  | 700x  |
@@ -384,7 +408,7 @@ This is theoretically grounded in Metropolis et al. (1953) and extended to explo
 | 500  | 6734.9075| 5645.8206| **16.2%**   | 3,390,088  | 577,015,808    | 170x  |
 | 1000 | 14951.1336|13594.4674| **9.1%**   | 2,002,279  | 284,870,041    | 142x  |
 
-**TSP — GPU vs CPU (60s time budget, 10 runs)**
+**TSP: GPU vs CPU (60s time budget, 10 runs)**
 
 | Cities | CPU Cost   | GPU Cost   | Quality Gain |
 |--------|------------|------------|-------------|
@@ -396,28 +420,28 @@ This is theoretically grounded in Metropolis et al. (1953) and extended to explo
 | 8000   | 1,335,795.9| 1,140,296.2| **14.6%**   |
 | 10,000 | 2,143,243.2| 1,767,074.8| **17.6%**   |
 
-GPU wins on **all** tested scales for both benchmarks.
+The GPU solver reaches a lower mean cost than the CPU baseline at **every** tested scale on both benchmarks.
 
 ---
 
 #### Key Findings
 
-**Finding 1: Rastrigin — GPU advantage decreases with dimensionality**
+**Finding 1: Rastrigin: GPU advantage decreases with dimensionality**
 
 Gain drops monotonically from 67.4% (dims=10) to 9.1% (dims=1000). This reflects the tradeoff between GPU breadth and CPU depth:
 - Low dims: 1024 chains effectively cover the search space, diversity dominates
-- High dims: search space is `[-5.12, 5.12]^1000`, each chain is severely undersampled; both CPU and GPU struggle, narrowing the gap
+- High dims: the search space is `[-5.12, 5.12]^1000`, each chain is severely undersampled; both CPU and GPU struggle, narrowing the gap
 
-The Iter Ratio (2114x at dims=10, 142x at dims=1000) shows GPU throughput advantage shrinks with dimensionality because each step becomes more computationally expensive.
+The aggregate Iter Ratio (2114x at dims=10, 142x at dims=1000) also shrinks with dimensionality because each step becomes more expensive.
 
-**Finding 2: TSP — GPU advantage increases with city count**
+**Finding 2: TSP: GPU advantage increases with city count**
 
-Gain grows from 5.5% (500 cities) to 17.6% (10,000 cities), with a performance inflection point at 3,000–5,000 cities. Two competing effects explain this:
+Gain grows from 5.5% (500 cities) to 17.6% (10,000 cities), with a dip around 3,000–5,000 cities. Two competing effects are likely at play:
 
-- **Positive:** Larger TSP instances have exponentially more local optima; CPU single-chain gets trapped more easily while GPU 32-chain diversity helps escape
-- **Negative:** Larger dist_matrix (100MB at 5,000 cities) saturates GPU L2 cache, increasing memory latency per step
+- **Positive:** larger TSP instances have many more local optima; a single CPU chain gets trapped more easily, while multiple GPU chains help escape
+- **Negative:** a larger dist_matrix (100MB at 5,000 cities) stresses GPU L2 cache and memory bandwidth, increasing latency per step
 
-Beyond 5,000 cities, the diversity advantage dominates and gain resumes linear growth.
+Beyond 5,000 cities the diversity advantage appears to dominate and gain resumes growing.
 
 **Finding 3: Optimal parallelism is hardware-constrained**
 
@@ -431,7 +455,9 @@ Chain sweep results for TSP (30s budget, cities=5000):
 | 512      | +17.7% | 132,943 |
 | 2048     | +14.3% | 114,247 |
 
-More chains = fewer iters per chain = less convergence depth. On RTX 4090, N_CHAINS=32 is optimal because the 100MB dist_matrix saturates memory bandwidth beyond this point. On higher-bandwidth hardware (e.g., A100 at 2039 GB/s vs 4090 at 1008 GB/s), the optimal N_CHAINS would likely be higher.
+<!-- TODO: The sweep reports +22.4% at 5,000 cities (30s budget) while the main TSP table reports 8.5% at 5,000 cities (60s budget). Add one line explaining the difference (budget, baseline, or number of runs), or re-check. -->
+
+More chains means fewer iterations per chain, hence less convergence depth. On the RTX 4090, N_CHAINS=32 was best in our sweep, consistent with the 100MB dist_matrix saturating memory bandwidth beyond that point. On higher-bandwidth hardware (e.g., A100 at 2039 GB/s vs 4090 at 1008 GB/s), the optimal N_CHAINS would likely be higher (not tested).
 
 **Finding 4: Benchmark structure determines GPU benefit pattern**
 
@@ -442,15 +468,7 @@ More chains = fewer iters per chain = less convergence depth. On RTX 4090, N_CHA
 | Bottleneck | Dimensionality curse | Memory bandwidth |
 | Best at | Low dims (67% gain) | Large cities (17.6% gain) |
 
-This confirms H5: GPU parallelism tradeoffs are fundamentally problem-dependent. Rastrigin (continuous multimodal) benefits most from breadth at small scale; TSP (discrete combinatorial) benefits most from diversity at large scale.
-
----
-
-#### H5 Hypothesis Scorecard Update
-
-| # | Hypothesis | Result | Evidence |
-|---|-----------|--------|----------|
-| H5 | GPU parallelism provides meaningful acceleration with problem-dependent tradeoffs | **Confirmed** | Rastrigin: up to 67.4% quality gain (dims=10). TSP: up to 17.6% quality gain (10K cities). GPU wins all tested scales on both benchmarks. Optimal chain count constrained by hardware memory bandwidth. |
+This supports H5: GPU parallelism tradeoffs are problem-dependent. Rastrigin (continuous multimodal) benefits most from breadth at small scale; TSP (discrete combinatorial) benefits most from diversity at large scale.
 
 ---
 
@@ -467,7 +485,7 @@ This confirms H5: GPU parallelism tradeoffs are fundamentally problem-dependent.
 | File | Description |
 |------|-------------|
 | `solvers/gpu_sa_final.py` | Rastrigin CUDA kernel (multi-chain SA) |
-| `solvers/gpu_tsp_kernel.py` | TSP CUDA kernel (Boltzmann-weighted 2-opt) |
+| `solvers/gpu_tsp_kernel.py` | TSP CUDA kernel (parallel 2-opt SA chains) |
 | `experiments/run_gpu_final.py` | Rastrigin GPU experiment runner |
 | `experiments/run_gpu_tsp.py` | TSP GPU experiment runner |
 | `run_tsp_chain_sweep.py` | N_CHAINS optimization sweep |
@@ -496,15 +514,17 @@ python3 -m experiments.run_gpu_tsp --time 60 --runs 10 --outdir results/gpu_tsp
 python3 run_tsp_chain_sweep.py
 ```
 
+---
+
 ## Hypothesis Scorecard
 
 | # | Hypothesis | Result | Evidence |
 |---|-----------|--------|----------|
-| H1 | Guided migration outperforms random/best-only | **Confirmed** | Rastrigin 30d: guided wins by 4.8–11.2%. TSP: guided ≈ quality_only (<0.5% gap), both outperform random by 3.5%. |
-| H2 | Adaptive temperature improves robustness | **Confirmed** | Rastrigin: -47% Mean Cost, -59% Std Dev. TSP: fixed wins 10/10 runs by 20%. Problem-dependent behavior confirmed. |
-| H3 | Async migration improves wall-clock performance | **Confirmed** | TSP: 1.06x speedup + 12.9% better cost, 10/10 wins. Advantage grows from 4.5% at 2 islands to 16.7% at 8 islands. |
-| H4 | Topology affects convergence | **Confirmed** | Full topology best for TSP (10/10 wins). Ring best for Rastrigin. Full causes 3x time overhead at 16 islands. |
-| H5 | GPU parallelism provides meaningful acceleration with problem-dependent tradeoffs | **Confirmed** | Rastrigin: up to 67.4% quality gain (dims=10). TSP: up to 17.6% quality gain (10K cities). GPU wins all tested scales on both benchmarks. |
+| H1 | Guided migration outperforms random/best-only | **Partially confirmed** | Rastrigin 30d: guided has the lowest mean cost (better than random by 11.2%, best_only by 4.8%). TSP 2000: guided ≈ quality_only (<0.5% gap), both better than random. Rastrigin 10d: no clear winner (best_only lowest). |
+| H2 | Adaptive temperature improves robustness | **Confirmed (problem-dependent)** | Rastrigin: −47% mean cost, −59% Std Dev. TSP: fixed cooling wins 10/10 runs by 20%, so adaptive heating is disabled for TSP. |
+| H3 | Async migration improves performance | **Partially confirmed** | TSP: 1.06x speedup + 12.9% better cost, and the advantage grows with island count (4.5% at 2 islands → 16.7% at 8). Rastrigin: 44.6% better cost but 0.70x speed (slower). |
+| H4 | Topology affects convergence | **Confirmed** | Full topology best for TSP (10/10 wins). Ring best for Rastrigin at 4 islands. Full topology costs ~3x time at 16 islands. |
+| H5 | GPU parallelism provides meaningful acceleration with problem-dependent tradeoffs | **Confirmed** | Rastrigin: up to 67.4% quality gain (dims=10). TSP: up to 17.6% quality gain (10K cities). GPU is better at all tested scales; optimal chain count is constrained by memory bandwidth. |
 
 ---
 
@@ -518,26 +538,29 @@ Unlike the additive formulation `U = α·q + β·d` proposed in the original des
 U = q × (1 + β·d)
 ```
 
-This guarantees quality as a hard prerequisite for selection — when `q ≈ 0`, the utility collapses to near-zero regardless of diversity, preventing low-quality but high-diversity candidates from being selected. Diversity serves purely as a tie-breaker bonus when candidates have similar cost. This avoids the failure mode of the additive form, where a diverse-but-poor solution can outscore a high-quality solution when diversity weight is non-trivial.
+This makes quality a hard prerequisite for selection: when `q ≈ 0`, the utility collapses to near zero regardless of diversity, preventing low-quality but high-diversity candidates from being selected. Diversity serves as a tie-breaker bonus when candidates have similar cost. This avoids the failure mode of the additive form, where a diverse-but-poor solution can outscore a high-quality one when the diversity weight is non-trivial.
 
 ### Pool-Normalized Diversity
-Diversity is normalized against the current incoming migration pool rather than the entire search space diameter. This provides stable [0,1] diversity scores regardless of problem scale or dimensionality.
+
+Diversity is normalized against the current incoming migration pool rather than the entire search-space diameter. This provides stable [0,1] diversity scores regardless of problem scale or dimensionality.
 
 ### Auto-Calibrated Cooling Schedule
-The cooling rate `alpha_cool` is automatically calculated from `max_iter` to ensure temperature reaches `T_min` exactly when iterations are exhausted. This prevents wasted computation from premature temperature depletion.
+
+The cooling rate `alpha_cool` is computed from `max_iter` so that temperature reaches `T_min` exactly when iterations are exhausted. This prevents wasted computation from premature temperature depletion.
 
 ### Phase-Aware Adaptive Heating
 
-We extend the basic adaptive scheme with a phase-aware design that addresses the runaway reheating problem of naive adaptive temperature control:
+We extend the basic adaptive scheme with a phase-aware design that addresses the runaway-reheating problem of naive adaptive temperature control:
 
-- **Reheating is restricted to the first 60% of iterations** to prevent disrupting late-stage convergence.
+- **Reheating is restricted to the first 60% of iterations** to avoid disrupting late-stage convergence.
 - **The reheat factor decays linearly from 1.10 to 1.02** with iteration progress, reducing aggressiveness over time.
 - **Temperature is capped at T0 × 0.3** to prevent runaway reheating.
 
-This is motivated by the observation that aggressive reheating in later phases increases variance without improving solution quality. Experiment 3 confirms this design: adaptive cooling achieves −47% Mean Cost and −59% Std Dev on Rastrigin, while fixed cooling remains superior for TSP where reheating disrupts monotone convergence.
+This is motivated by the observation that aggressive reheating in later phases increases variance without improving solution quality. Experiment 3 supports this design on Rastrigin (−47% mean cost, −59% Std Dev), while fixed cooling remains better for TSP, where reheating disrupts monotone convergence.
 
 ### Asynchronous Buffered Migration
-Islands communicate via non-blocking queues with no global barriers. Migration is checked both during the inner loop (every `migration_interval` steps) and at cooling step boundaries for faster response. This eliminates synchronization idle time and allows computation and communication to overlap, with the async advantage growing from 4.5% at 2 islands to 16.7% at 8 islands on TSP.
+
+Islands communicate via non-blocking queues with no global barriers. Migration is checked both during the inner loop (every `migration_interval` steps) and at cooling-step boundaries for faster response. This removes synchronization idle time and lets computation and communication overlap; on TSP the quality advantage over synchronous islands grows from 4.5% at 2 islands to 16.7% at 8 islands.
 
 ---
 
@@ -556,3 +579,6 @@ All results are saved to `results/` as CSV files:
 | `exp5_scale_ring/` | Exp 5: Rastrigin scalability (ring topology) |
 | `exp5_scale_full/` | Exp 5: Rastrigin scalability (full topology) |
 | `exp5_scale_randomk/` | Exp 5: Rastrigin scalability (random_k topology) |
+| `gpu_rastrigin_60time_5runs/` | Exp 6: Rastrigin GPU vs CPU |
+| `gpu_TSP_N_CHAINS_32_10runs/` | Exp 6: TSP GPU vs CPU |
+| `gpu_sweep/` | Exp 6: N_CHAINS sweep |
